@@ -61,7 +61,7 @@ struct gblink_def {
 	void *cb_context;
 };
 
-void gblink_clk_source_set(void *handle, int clk_source);
+void gblink_clk_source_set(void *handle, gblink_clk_source clk_source);
 
 void gblink_speed_set(void *handle, gblink_speed speed);
 
