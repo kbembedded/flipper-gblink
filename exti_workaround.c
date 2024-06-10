@@ -136,13 +136,6 @@ void *exti_workaround(const GpioPin *clk, void (*isr_callback)(void *context), v
 	work->exti3_event_enable = LL_EXTI_IsEnabledEvent_0_31(LL_EXTI_LINE_3);
 	work->clk = clk;
 
-	/* Now, set up our desired pin settings. This will only clobber exti3
-	 * settings and will not affect the actual interrupt vector address.
-	 * Settings include the rising/falling/event triggers which we just
-	 * saved.
-	 */
-	furi_hal_gpio_init(work->clk, GpioModeInterruptRiseFall, GpioPullUp, GpioSpeedVeryHigh);
-
 	/* Update the NVIC table to point at our desired table.
 	 * Out of safety, stop the world around changing the VTOR reg.
 	 */
@@ -190,8 +183,6 @@ void exti_workaround_undo(void *handle)
 	else
 		LL_EXTI_DisableEvent_0_31(LL_EXTI_LINE_3);
 
-	/* "Release" the GPIO by putting it back in a known idle state. */
-	furi_hal_gpio_init_simple(work->clk, GpioModeAnalog);
 
 	/* Set the IVT back to the normal, in-flash table. Stopping the world
 	 * while we do so.
