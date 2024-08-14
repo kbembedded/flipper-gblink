@@ -51,22 +51,13 @@ typedef enum {
 	PINOUT_COUNT,
 } gblink_pinouts;
 
-extern const struct gblink_pins common_pinouts[PINOUT_COUNT];
-
-/* 
- * All of these are things that are basically set once and would never need
- * to change during the lifetime of the instance.
- *
- * Callback can indeed be NULL if unneeded, however a call to the blocking
- * gblink_transfer_tx_wait_complete() must be used in order to get a notification
- * of the transfer being complete.
- */
-struct gblink_spec {
-	struct gblink_pins *pins;
-	gblink_mode mode;
-	void (*callback)(void* cb_context, uint8_t in);
-	void *cb_context;
-};
+typedef enum {
+	PIN_SERIN,
+	PIN_SEROUT,
+	PIN_CLK,
+	PIN_SD,
+	PIN_COUNT,
+} gblink_bus_pins;
 
 /*
  * NOTE:
@@ -79,6 +70,17 @@ void gblink_speed_set(void *handle, gblink_speed speed);
 void gblink_timeout_set(void *handle, uint32_t us);
 
 bool gblink_transfer(void *handle, uint8_t val);
+
+/* Can only be run after alloc, before start */
+int gblink_pin_set_default(void *handle, gblink_pinouts pinout);
+
+int gblink_pin_set(void *handle, gblink_bus_pins pin, const GpioPin *gpio);
+
+const GpioPin *gblink_pin_get(void *handle, gblink_bus_pins pin);
+
+int gblink_callback_set(void *handle, void (*callback)(void* cb_context, uint8_t in), void *cb_context);
+
+int gblink_mode_set(void *handle, gblink_mode mode);
 
 /* 
  * This can be used for INT or EXT clock modes. After a call to
@@ -94,9 +96,14 @@ void gblink_int_enable(void *handle);
 
 void gblink_int_disable(void *handle);
 
-void *gblink_alloc(struct gblink_spec *gblink_spec);
+/* Sets up some defaults */
+void *gblink_alloc(void);
 
 void gblink_free(void *handle);
+
+void gblink_start(void *handle);
+
+void gblink_stop(void *handle);
 
 #ifdef __cplusplus
 }

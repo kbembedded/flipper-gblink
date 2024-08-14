@@ -30,25 +30,40 @@ const struct gblink_pins common_pinouts[PINOUT_COUNT] = {
 };
 
 struct gblink {
-	/* The spec contains:
-	 * spec->pins->serin
-	 * spec->pins->serout
-	 * spec->pins->clk
-	 * spec->pins->sd
-	 * spec->mode
-	 * spec->callback
-	 * spec->cb_context
-	 *
-	 * These are currently set up never to change during the lifetime of
-	 * a handle. If any of these need to change then the handle should be
-	 * destroyed and reopened. It is to save on complexity and is also an
-	 * opertion that would very rarely be needed without strong reason.
-	 */
-	struct gblink_spec *spec;
+	const GpioPin *serin;
+	const GpioPin *serout;
+	const GpioPin *clk;
+	const GpioPin *sd;
+	gblink_mode mode;
+	void (*callback)(void* cb_context, uint8_t in);
+	void *cb_context;
 
-	/* Used to control the wait until TX complete function. */
+	/* These two semaphores serve similar but distinct purposes. */
+	/* The transfer semaphore is taken as soon as a transfer() request
+	 * has been started. This is used in the function to wait until the
+	 * transfer has been completed.
+	 */
 	FuriSemaphore *transfer_sem;
+	/* The out byte semaphore is used to indicate that a byte transfer
+	 * is in progress. This is used in the transfer function to not allow
+	 * a transfer request if we're in the middle of sending a byte.
+	 * The transfer semaphore is not used for that purpose since if the
+	 * Flipper is in EXT clk mode, once a transfer() is started, there
+	 * would be no way to both prevent transfer() from being called again
+	 * as well as cancelling/changing what we're wanting to send. Using
+	 * out byte semaphore means a transfer() can be called at any time,
+	 * waited on synchronously for a timeout, and then re-called at a
+	 * later time; while blocking that update if a byte is actually
+	 * in the middle of being transmitted.
+	 */
 	FuriSemaphore *out_byte_sem;
+
+	/* Used to lock out changing things after a certain point. Pinout,
+	 * mode, etc.
+	 * XXX: Might make more sense to use the mutex to protect a flag?
+	 * Maybe a semaphore? Though I think that is the wrong use.
+	 */
+	FuriMutex *start_mutex;
 
 	/* 
 	 * The following should probably have the world stopped around them
@@ -96,7 +111,7 @@ static void gblink_shift_in_isr(struct gblink *gblink)
 	const uint32_t time_ticks = furi_hal_cortex_instructions_per_microsecond() * gblink->bitclk_timeout_us;
 
 	if (gblink->source == GBLINK_CLK_INT)
-		furi_hal_gpio_write(gblink->spec->pins->clk, 1);
+		furi_hal_gpio_write(gblink->clk, 1);
 
 	/* If we exceeded the bit clock timeout, reset all counters */
 	if ((DWT->CYCCNT - gblink->time) > time_ticks) {
@@ -106,7 +121,7 @@ static void gblink_shift_in_isr(struct gblink *gblink)
 	gblink->time = DWT->CYCCNT;
 
 	gblink->in <<= 1;
-	gblink->in |= furi_hal_gpio_read(gblink->spec->pins->serin);
+	gblink->in |= furi_hal_gpio_read(gblink->serin);
 	gblink->shift++;
 	/* If 8 bits transfered, reset shift counter, call registered
 	 * callback, re-set nobyte in output buffer.
@@ -133,8 +148,8 @@ static void gblink_shift_in_isr(struct gblink *gblink)
 		 * Call the callback, if set, and then release the semaphore
 		 * in case a thread is waiting on TX to complete.
 		 */
-		if (gblink->spec->callback)
-			gblink->spec->callback(gblink->spec->cb_context, gblink->in);
+		if (gblink->callback)
+			gblink->callback(gblink->cb_context, gblink->in);
 
 		furi_semaphore_release(gblink->transfer_sem);
 	}
@@ -143,14 +158,14 @@ static void gblink_shift_in_isr(struct gblink *gblink)
 static void gblink_shift_out_isr(struct gblink *gblink)
 {
 	furi_semaphore_acquire(gblink->out_byte_sem, 0);
-	furi_hal_gpio_write(gblink->spec->pins->serout, !!(gblink->out & 0x80));
+	furi_hal_gpio_write(gblink->serout, !!(gblink->out & 0x80));
 	gblink->out <<= 1;
 
 	/* XXX: TODO: Check that this is the correct thing with open drain.
 	 * does 0 value actually drive the line low, or high?
 	 */
 	if (gblink->source == GBLINK_CLK_INT)
-		furi_hal_gpio_write(gblink->spec->pins->clk, 0);
+		furi_hal_gpio_write(gblink->clk, 0);
 }
 
 static void gblink_clk_isr(void *context)
@@ -170,7 +185,7 @@ static void gblink_clk_isr(void *context)
 	 * The actual in/out functions drive the clock state at the right times
 	 * if the clock is internal source.
 	 */
-	out = (furi_hal_gpio_read(gblink->spec->pins->clk) ==
+	out = (furi_hal_gpio_read(gblink->clk) ==
 	      (gblink->source == GBLINK_CLK_INT));
 
 	if (out)
@@ -185,17 +200,15 @@ static void gblink_clk_isr(void *context)
  */
 static void gblink_clk_configure(struct gblink *gblink)
 {
-	struct gblink_pins *pins = gblink->spec->pins;
-
 	if (gblink->source == GBLINK_CLK_EXT) {
-		furi_hal_gpio_init(pins->clk, GpioModeInterruptRiseFall, GpioPullUp, GpioSpeedVeryHigh);
+		furi_hal_gpio_init(gblink->clk, GpioModeInterruptRiseFall, GpioPullUp, GpioSpeedVeryHigh);
 		/* furi_hal_gpio_init, while it sets interrupt settings on the GPIO,
 		 * does not actually enable the EXTI interrupt.
 		 */
 		gblink_int_enable(gblink);
 	} else {
 		/* This will disable the EXTI interrupt for us */
-		furi_hal_gpio_init(pins->clk, GpioModeOutputOpenDrain, GpioPullUp, GpioSpeedVeryHigh);
+		furi_hal_gpio_init(gblink->clk, GpioModeOutputOpenDrain, GpioPullUp, GpioSpeedVeryHigh);
 	};
 }
 
@@ -247,6 +260,108 @@ void gblink_timeout_set(void *handle, uint32_t us)
 
 	gblink->bitclk_timeout_us = us;
 }
+
+int gblink_pin_set(void *handle, gblink_bus_pins pin, const GpioPin *gpio)
+{
+	furi_assert(handle);
+	struct gblink *gblink = handle;
+
+	if (furi_mutex_acquire(gblink->start_mutex, 0) != FuriStatusOk)
+		return 1;
+
+	switch (pin) {
+	case PIN_SERIN:
+		gblink->serin = gpio;
+		break;
+	case PIN_SEROUT:
+		gblink->serout = gpio;
+		break;
+	case PIN_CLK:
+		gblink->clk = gpio;
+		break;
+	case PIN_SD:
+		gblink->sd = gpio;
+		break;
+	default:
+		furi_crash();
+		break;
+	}
+
+	furi_mutex_release(gblink->start_mutex);
+
+	return 0;
+}
+
+int gblink_pin_set_default(void *handle, gblink_pinouts pinout)
+{
+	furi_assert(handle);
+	struct gblink *gblink = handle;
+
+	if (furi_mutex_acquire(gblink->start_mutex, 0) != FuriStatusOk)
+		return 1;
+
+	gblink->serin = common_pinouts[pinout].serin;
+	gblink->serout = common_pinouts[pinout].serout;
+	gblink->clk = common_pinouts[pinout].clk;
+	gblink->sd = common_pinouts[pinout].sd;
+
+	furi_mutex_release(gblink->start_mutex);
+
+	return 0;
+}
+
+
+const GpioPin *gblink_pin_get(void *handle, gblink_bus_pins pin)
+{
+	furi_assert(handle);
+	struct gblink *gblink = handle;
+
+	switch (pin) {
+	case PIN_SERIN:
+		return gblink->serin;
+	case PIN_SEROUT:
+		return gblink->serout;
+	case PIN_CLK:
+		return gblink->clk;
+	case PIN_SD:
+		return gblink->sd;
+	default:
+		furi_crash();
+		break;
+	}
+
+	return NULL;
+}
+
+int gblink_callback_set(void *handle, void (*callback)(void* cb_context, uint8_t in), void *cb_context)
+{
+	furi_assert(handle);
+	struct gblink *gblink = handle;
+
+	if (furi_mutex_acquire(gblink->start_mutex, 0) != FuriStatusOk)
+		return 1;
+
+	gblink->callback = callback;
+	gblink->cb_context = cb_context;
+	furi_mutex_release(gblink->start_mutex);
+
+	return 0;
+}
+
+int gblink_mode_set(void *handle, gblink_mode mode)
+{
+	furi_assert(handle);
+	struct gblink *gblink = handle;
+
+	if (furi_mutex_acquire(gblink->start_mutex, 0) != FuriStatusOk)
+		return 1;
+
+	gblink->mode = mode;
+	furi_mutex_release(gblink->start_mutex);
+
+	return 0;
+}
+
 
 bool gblink_transfer(void *handle, uint8_t val)
 {
@@ -340,7 +455,7 @@ void gblink_int_enable(void *handle)
 	 * in effect. It just enables the root EXTI interrupt source of the
 	 * given pin.
 	 */
-	furi_hal_gpio_enable_int_callback(gblink->spec->pins->clk);
+	furi_hal_gpio_enable_int_callback(gblink->clk);
 }
 
 void gblink_int_disable(void *handle)
@@ -353,35 +468,42 @@ void gblink_int_disable(void *handle)
 	 * in effect. It just disables the root EXTI interrupt source of the
 	 * given pin.
 	 */
-	furi_hal_gpio_disable_int_callback(gblink->spec->pins->clk);
+	furi_hal_gpio_disable_int_callback(gblink->clk);
 }
 
-void *gblink_alloc(struct gblink_spec *spec)
+void *gblink_alloc(void)
 {
 	struct gblink *gblink;
-	struct gblink_pins pins;
 
 	/* Allocate and zero struct */
 	gblink = malloc(sizeof(struct gblink));
-	gblink->spec = malloc(sizeof(struct gblink_spec));
+	//gblink->spec = malloc(sizeof(struct gblink_spec));
 
 	gblink->transfer_sem = furi_semaphore_alloc(1, 1);
 	gblink->out_byte_sem = furi_semaphore_alloc(1, 1);
+	gblink->start_mutex = furi_mutex_alloc(FuriMutexTypeNormal);
 
-	/* Copy data from the spec to our local struct. This is so the application
-	 * using this library doesn't need to maintain the data for the life of the
-	 * application.
-	 */
-	memcpy(gblink->spec, spec, sizeof(struct gblink_spec));
+	/* Set defaults */
+	gblink_pin_set_default(gblink, PINOUT_ORIGINAL);
+	gblink_mode_set(gblink, GBLINK_MODE_GBC);
+	gblink_clk_source_set(gblink, GBLINK_CLK_EXT);
+	gblink_speed_set(gblink, GBLINK_SPD_8192HZ);
+	gblink_timeout_set(gblink, 500);
 
-	/* Copy pins from spec to local var just to make fewer dereferences */
-	memcpy(&pins, gblink->spec->pins, sizeof(struct gblink_pins));
-
-	/* Set default values for other variables */
-	gblink->source = GBLINK_CLK_EXT;
-	gblink->speed = GBLINK_SPD_8192HZ;
-	gblink->bitclk_timeout_us = 500;
+	/* Set current time to start timeout calculations */
 	gblink->time = DWT->CYCCNT;
+
+	return gblink;
+}
+
+void gblink_start(void *handle)
+{
+	furi_assert(handle);
+	struct gblink *gblink = handle;
+
+	/* XXX: Check callback is valid */
+
+	furi_mutex_acquire(gblink->start_mutex, FuriWaitForever);
 
 	/* Set up pins */
 	/* TODO: Set up a list of pins that are not safe to use with interrupts.
@@ -392,23 +514,23 @@ void *gblink_alloc(struct gblink_spec *spec)
 	 * See the work done in pokemon trade tool custom pinout selection for
 	 * an idea of how to check all that.
 	 */
-	furi_hal_gpio_write(pins.serout, false);
-	furi_hal_gpio_init(pins.serout, GpioModeOutputPushPull, GpioPullNo, GpioSpeedVeryHigh);
-	furi_hal_gpio_write(pins.serin, false);
-	furi_hal_gpio_init(pins.serin, GpioModeInput, GpioPullUp, GpioSpeedVeryHigh);
+	furi_hal_gpio_write(gblink->serout, false);
+	furi_hal_gpio_init(gblink->serout, GpioModeOutputPushPull, GpioPullNo, GpioSpeedVeryHigh);
+	furi_hal_gpio_write(gblink->serin, false);
+	furi_hal_gpio_init(gblink->serin, GpioModeInput, GpioPullUp, GpioSpeedVeryHigh);
 
 	/* Set up interrupt on clock pin */
-	if (pins.clk == &gpio_ext_pb3) {
+	if (gblink->clk == &gpio_ext_pb3) {
 		/* The clock pin is on a pin that is not safe to set an interrupt
 		 * on, so we do a gross workaround to get an interrupt enabled
 		 * on that pin in a way that can be undone safely later with
 		 * no impact to the shared IRQ.
 		 */
-		gblink->exti_workaround_handle = exti_workaround(pins.clk, gblink_clk_isr, gblink);
+		gblink->exti_workaround_handle = exti_workaround(gblink->clk, gblink_clk_isr, gblink);
 	} else {
 		/* This may not be needed after NFC refactor */
-		furi_hal_gpio_remove_int_callback(pins.clk);
-		furi_hal_gpio_add_int_callback(pins.clk, gblink_clk_isr, gblink);
+		furi_hal_gpio_remove_int_callback(gblink->clk);
+		furi_hal_gpio_add_int_callback(gblink->clk, gblink_clk_isr, gblink);
 	}
 
 	/* The above immediately enables the interrupt, we don't want
@@ -417,27 +539,55 @@ void *gblink_alloc(struct gblink_spec *spec)
 	gblink_int_disable(gblink);
 
 	gblink_clk_configure(gblink);
-
-	return gblink;
 }
 
-void gblink_free(void *handle)
+void gblink_stop(void *handle)
 {
 	furi_assert(handle);
 	struct gblink *gblink = handle;
-	struct gblink_pins *pins = gblink->spec->pins;
 
-	if (pins->clk == &gpio_ext_pb3) {
+	/* If we can acquire the mutex, that means start was never actually
+	 * called. Crash.
+	 * XXX: Probably a bit harsh to just crash, can it gracefully recover
+	 * without too much effort?
+	 */
+	if (furi_mutex_acquire(gblink->start_mutex, 0) == FuriStatusOk) {
+		furi_crash();
+		return;
+	}
+
+	if (gblink->clk == &gpio_ext_pb3) {
 		/* This handles switching the IVT back and putting the EXTI
 		 * regs and pin regs in a valid state for normal use.
 		 */
 		exti_workaround_undo(gblink->exti_workaround_handle);
 	} else {
 		/* Remove interrupt, set IO to sane state */
-		furi_hal_gpio_remove_int_callback(pins->clk);
+		furi_hal_gpio_remove_int_callback(gblink->clk);
 	}
-	furi_hal_gpio_init_simple(pins->serin, GpioModeAnalog);
-	furi_hal_gpio_init_simple(pins->serout, GpioModeAnalog);
-	furi_hal_gpio_init_simple(pins->clk, GpioModeAnalog);
+	furi_hal_gpio_init_simple(gblink->serin, GpioModeAnalog);
+	furi_hal_gpio_init_simple(gblink->serout, GpioModeAnalog);
+	furi_hal_gpio_init_simple(gblink->clk, GpioModeAnalog);
+
+	furi_mutex_release(gblink->start_mutex);
+}
+
+void gblink_free(void *handle)
+{
+	furi_assert(handle);
+	struct gblink *gblink = handle;
+
+	/* If we cannot acquire the mutex, that means the link was never properly
+	 * stopped. Crash.
+	 * XXX: Can this be gracefully handled?
+	 */
+	if (furi_mutex_acquire(gblink->start_mutex, 0) != FuriStatusOk) {
+		furi_crash();
+		return;
+	}
+	furi_mutex_release(gblink->start_mutex);
+	furi_mutex_free(gblink->start_mutex);
+	furi_semaphore_free(gblink->transfer_sem);
+	furi_semaphore_free(gblink->out_byte_sem);
 	free(gblink);
 }
