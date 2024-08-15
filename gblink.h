@@ -105,6 +105,9 @@ void gblink_start(void *handle);
 
 void gblink_stop(void *handle);
 
+// void gblink_blink_led_on_byte(handle, color?)
+// get blink?
+
 #ifdef __cplusplus
 }
 #endif
