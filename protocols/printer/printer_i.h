@@ -1,7 +1,7 @@
 #ifndef PRINTER_I_H
 #define PRINTER_I_H
 
-#include <protocols/printer_proto.h>
+#include <protocols/printer/include/printer_proto.h>
 
 #define PKT_START_L		0x88
 #define PKT_START_H		0x33

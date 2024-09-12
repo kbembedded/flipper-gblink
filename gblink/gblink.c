@@ -8,9 +8,9 @@
 
 #include <stdint.h>
 
-#include "gblink.h"
-#include "exti_workaround.h"
-#include "clock_timer.h"
+#include <gblink/include/gblink.h>
+#include "exti_workaround_i.h"
+#include "clock_timer_i.h"
 
 const struct gblink_pins common_pinouts[PINOUT_COUNT] = {
 	/* Original */

@@ -2,7 +2,7 @@
 
 #include <furi.h>
 
-#include <gblink.h>
+#include <gblink/include/gblink.h>
 #include "printer_i.h"
 
 #define TAG "printer_receive"

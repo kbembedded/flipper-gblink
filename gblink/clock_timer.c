@@ -13,7 +13,7 @@
  *
  */
 
-#include "clock_timer.h"
+#include "clock_timer_i.h"
 #include <stdlib.h>
 
 #include <furi_hal_interrupt.h>

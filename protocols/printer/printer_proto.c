@@ -1,7 +1,7 @@
 #include <furi.h>
 
-#include <gblink.h>
-#include <protocols/printer_proto.h>
+#include <gblink/include/gblink.h>
+#include <protocols/printer/include/printer_proto.h>
 #include "printer_i.h"
 
 /* XXX: Does this make sense to be a message dispatcher rather than calling callbacks?

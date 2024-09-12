@@ -1,7 +1,7 @@
 #ifndef PRINTER_PROTO_H
 #define PRINTER_PROTO_H
 
-#include "../gblink.h"
+#include <gblink/include/gblink.h>
 
 #pragma once
 
