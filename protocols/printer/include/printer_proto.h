@@ -15,6 +15,10 @@ enum cb_reason {
  * sending it to printer.
  */
 struct gb_image {
+	/* NOTE: Do not change the order of these 4 bytes!
+	 * TODO: Maybe make this a struct, or a union, or something to help
+	 * enforce their ordering to allow for a memcpy to and from printer.
+	 */
 	/* TODO: Need to understand this more */
 	uint8_t num_sheets;
 	uint8_t margins;

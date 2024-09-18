@@ -7,8 +7,39 @@
 
 #define TAG "printer_receive"
 
-/* XXX: TODO: Double check this */
-#define TIMEOUT_US 1000000
+/* NOTE:
+ * These numbers are empirically gathered from a few different games thus far.
+ * There are many notes floating around the internet of the GB Printer having
+ * a 100 ms limit between packets where it will reset. However, I've seen
+ * Pokemon Pinball wait 99.5 ms between packets after a print command which is
+ * a bit too close for comfort. As this code tracks timestamps _after_ each byte,
+ * that ends up just over 110 ms which trips the hard timeout and resets state.
+ * This often cofuses the hell out of games.
+ *
+ * Additionally, on the other end of the spectrum, Pokemon Gold absolutely uses
+ * the hard timeout to reset the printer between packets. It waits ~278 ms, when
+ * it could just send an init command.
+ *
+ * Even more silly, Pokemon Pinball has a fun quirk where if the print completes
+ * immediately (usually the Flipper will mark a print complete with a single
+ * packet turnaround), it asks for status a couple of times, then starts (presumably)
+ * another status packet, but the second byte in the transfer is stopped mid-byte.
+ * Between that point and the start of the next, real packet, is 30 ms, 32.6 ms
+ * if you go from end of last byte received to start of next, real packet.
+ *
+ * This means there is some "soft" timeout that the printer uses to reset a packet
+ * transfer in progress, but don't reset the whole printer state.
+ *
+ * There are wisps of some "unknown" bit timeout of 1.49 ms. But I've not yet
+ * seen that in action.
+ *
+ * As far as I know, no one has dumped and reverse engineered the ROM of the
+ * Game Boy Printer directly. I think all of the existing documentation was from
+ * reverse engineering the communication channel. Maybe someday I'll dump the
+ * GB Printer ROM and try to better understand all of it.
+ */
+#define HARD_TIMEOUT_US 125000
+#define SOFT_TIMEOUT_US 20000
 
 static void printer_reset(struct printer_proto *printer)
 {
@@ -27,11 +58,17 @@ static void byte_callback(void *context, uint8_t val)
 {
 	struct printer_proto *printer = context;
 	struct packet *packet = printer->packet;
-	const uint32_t time_ticks = furi_hal_cortex_instructions_per_microsecond() * TIMEOUT_US;
+	const uint32_t time_ticks = furi_hal_cortex_instructions_per_microsecond() * HARD_TIMEOUT_US;
 	uint8_t data_out = 0x00;
 
-	if ((DWT->CYCCNT - printer->packet->time) > time_ticks)
+	if ((DWT->CYCCNT - packet->time) > time_ticks)
 		printer_reset(printer);
+
+	if ((DWT->CYCCNT - packet->time) > furi_hal_cortex_instructions_per_microsecond() * SOFT_TIMEOUT_US)
+		packet->state = START_L;
+
+	/* Packet timeout restart */
+	packet->time = DWT->CYCCNT;
 
 	/* TODO: flash led? */
 
@@ -39,8 +76,6 @@ static void byte_callback(void *context, uint8_t val)
 	case START_L:
 		if (val == PKT_START_L) {
 			packet->state = START_H;
-			/* Packet timeout restart */
-			packet->time = DWT->CYCCNT;
 			packet->zero_counter = 0;
 		}
 		if (val == 0x00) {
@@ -59,13 +94,6 @@ static void byte_callback(void *context, uint8_t val)
 		packet->cmd = val;
 		packet->state = COMPRESS;
 		packet->cksum_calc += val;
-
-		/* We only do a real reset after the packet is completed, however
-		 * we need to clear the status flags at this point.
-		 */
-		if (val == CMD_INIT)
-			packet->status = 0;
-
 		break;
 	case COMPRESS:
 		packet->cksum_calc += val;
@@ -135,8 +163,9 @@ static void byte_callback(void *context, uint8_t val)
 					furi_assert(printer->image->data_sz <= PRINT_FULL_SZ);
 				}
 			}
-			if (printer->image->data_sz == PRINT_FULL_SZ)
-				packet->status |= STATUS_READY;
+
+			/* Any time data is written to the buffer, READY is set */
+			packet->status |= STATUS_READY;
 
 			furi_thread_flags_set(printer->thread, THREAD_FLAGS_DATA);
 			break;
@@ -145,6 +174,11 @@ static void byte_callback(void *context, uint8_t val)
 			 * a transfer command. If so, then we have failed to beat the clock.
 			 */
 		case CMD_PRINT:
+			/* TODO: Be able to memcpy these */
+			printer->image->num_sheets = packet->recv_data[0];
+			printer->image->margins = packet->recv_data[1];
+			printer->image->palette = packet->recv_data[2];
+			printer->image->exposure = packet->recv_data[3];
 			packet->status &= ~STATUS_READY;
 			packet->status |= (STATUS_PRINTING | STATUS_FULL);
 			furi_thread_flags_set(printer->thread, THREAD_FLAGS_PRINT);
@@ -220,5 +254,5 @@ void printer_receive_print_complete(void *printer_handle)
 {
 	struct printer_proto *printer = printer_handle;
 
-	printer->packet->status &= ~STATUS_PRINTING;
+	printer->packet->status |= STATUS_PRINTED;
 }
