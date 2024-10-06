@@ -55,11 +55,6 @@ enum packet_state {
 	STATUS,
 };
 
-enum printer_method {
-	PROTO_RECV,
-	PROTO_SEND,
-};
-
 /* Does not need to care about start bytes */
 struct packet {
 	uint8_t cmd;

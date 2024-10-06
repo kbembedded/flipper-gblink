@@ -12,6 +12,13 @@
 #include "exti_workaround_i.h"
 #include "clock_timer_i.h"
 
+struct gblink_pins {
+        const GpioPin *serin;
+        const GpioPin *serout;
+        const GpioPin *clk;
+        const GpioPin *sd;
+};
+
 const struct gblink_pins common_pinouts[PINOUT_COUNT] = {
 	/* Original */
 	{
@@ -106,6 +113,10 @@ static inline bool gblink_transfer_in_progress(struct gblink *gblink)
 	return !(furi_semaphore_get_count(gblink->out_byte_sem));
 }
 
+/* XXX: TODO: Investigate how exceeding the timeout would work if in INT clock
+ * mode. I think this would reset the state machine, but, I don't think the
+ * transfer would be restarted with the correct data.
+ */
 static void gblink_shift_in_isr(struct gblink *gblink)
 {
 	const uint32_t time_ticks = furi_hal_cortex_instructions_per_microsecond() * gblink->bitclk_timeout_us;
@@ -362,7 +373,7 @@ int gblink_mode_set(void *handle, gblink_mode mode)
 	return 0;
 }
 
-
+/* XXX: TODO: This doesn't check for start! */
 bool gblink_transfer(void *handle, uint8_t val)
 {
 	furi_assert(handle);
