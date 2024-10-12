@@ -130,6 +130,10 @@ void *exti_workaround(const GpioPin *clk, void (*isr_callback)(void *context), v
 	 * really never change through the life of the flipper OS. But for safety
 	 * we always save them rather than just blindly restoring the same settings
 	 * back when we undo this later.
+	 *
+	 * Note that these are clobbered by calls to furi_hal_gpio_init() which
+	 * can and should happen after this workaround function exits. They can
+	 * be set and unset without worry of clobbering the FURI private IRQ info.
 	 */
 	work->exti3_rise_enable = LL_EXTI_IsEnabledRisingTrig_0_31(LL_EXTI_LINE_3);
 	work->exti3_fall_enable = LL_EXTI_IsEnabledFallingTrig_0_31(LL_EXTI_LINE_3);
