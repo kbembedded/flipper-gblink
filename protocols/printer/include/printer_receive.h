@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BSD-2-Clause
+// Copyright (c) 2024 KBEmbedded
+
 #ifndef PRINTER_RECEIVE_H
 #define PRINTER_RECEIVE_H
 
