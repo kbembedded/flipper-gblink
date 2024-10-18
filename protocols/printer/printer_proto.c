@@ -26,7 +26,7 @@ static int32_t printer_callback_thread(void *context)
 		if (flags & THREAD_FLAGS_EXIT)
 			break;
 		if (flags & THREAD_FLAGS_DATA)
-			printer->callback(printer->cb_context, printer->image, reason_data);
+			printer->callback(printer->cb_context, printer->image, reason_line_xfer);
 		if (flags & THREAD_FLAGS_PRINT)
 			printer->callback(printer->cb_context, printer->image, reason_print);
 	}
@@ -51,7 +51,7 @@ void *printer_alloc(void)
 	furi_thread_start(printer->thread);
 
 	printer->packet = malloc(sizeof(struct packet));
-	printer->image = printer_image_buffer_alloc();
+	printer->image = malloc(sizeof(struct gb_image));
 
 	printer->gblink_handle = gblink_alloc();
 
@@ -134,16 +134,4 @@ void printer_stop(void *printer_handle)
 	 * not be necessary to actually to know the mode. We should be able to
 	 * just stop?
 	 */
-}
-
-
-struct gb_image *printer_image_buffer_alloc(void)
-{
-	struct gb_image *image = malloc(sizeof(struct gb_image) + PRINT_FULL_SZ);
-	return image;
-}
-
-void printer_image_buffer_free(struct gb_image *image)
-{
-	free(image);
 }

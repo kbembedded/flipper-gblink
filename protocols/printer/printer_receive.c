@@ -77,7 +77,7 @@ static void byte_callback(void *context, uint8_t val)
 
 	switch (packet->state) {
 	case START_L:
-		if (val == PKT_START_L) {
+		if (val == START_L_BYTE) {
 			packet->state = START_H;
 			packet->zero_counter = 0;
 		}
@@ -88,7 +88,7 @@ static void byte_callback(void *context, uint8_t val)
 		}
 		break;
 	case START_H:
-		if (val == PKT_START_H)
+		if (val == START_H_BYTE)
 			packet->state = COMMAND;
 		else
 			packet->state = START_L;
@@ -116,19 +116,19 @@ static void byte_callback(void *context, uint8_t val)
 		packet->len |= ((val & 0xff) << 8);
 		/* Override length for a TRANSFER */
 		if (packet->cmd == CMD_TRANSFER)
-			packet->len = TRANSFER_RECV_SZ;
+			packet->len = TRANSFER_SZ;
 
 		if (packet->len) {
-			packet->state = COMMAND_DAT;
+			packet->state = DATA;
 		} else {
 			packet->state = CKSUM_L;
 		}
 		break;
-	case COMMAND_DAT:
+	case DATA:
 		packet->cksum_calc += val;
-		packet->recv_data[packet->recv_data_sz] = val;
-		packet->recv_data_sz++;
-		if (packet->recv_data_sz == packet->len) 
+		packet->line_buf[packet->line_buf_sz] = val;
+		packet->line_buf_sz++;
+		if (packet->line_buf_sz == packet->len)
 			packet->state = CKSUM_L;
 		break;
 	case CKSUM_L:
@@ -139,11 +139,11 @@ static void byte_callback(void *context, uint8_t val)
 		packet->state = ALIVE;
 		packet->cksum |= ((val & 0xff) << 8);
 		if (packet->cksum != packet->cksum_calc)
-			packet->status |= STATUS_CKSUM;
+			packet->status |= STATUS_CKSUM_ERR;
 		// TRANSFER does not set checksum bytes
 		if (packet->cmd == CMD_TRANSFER)
-			packet->status &= ~STATUS_CKSUM;
-		data_out = PRINTER_ID;
+			packet->status &= ~STATUS_CKSUM_ERR;
+		data_out = ALIVE_BYTE;
 		break;
 	case ALIVE:
 		packet->state = STATUS;
@@ -158,10 +158,10 @@ static void byte_callback(void *context, uint8_t val)
 		case CMD_DATA:
 			if (printer->image->data_sz < PRINT_FULL_SZ) {
 				if ((printer->image->data_sz + packet->len) <= PRINT_FULL_SZ) {
-					memcpy((printer->image->data)+printer->image->data_sz, packet->recv_data, packet->len);
+					memcpy((printer->image->data)+printer->image->data_sz, packet->line_buf, packet->len);
 					printer->image->data_sz += packet->len;
 				} else {
-					memcpy((printer->image->data)+printer->image->data_sz, packet->recv_data, ((printer->image->data_sz + packet->len)) - PRINT_FULL_SZ);
+					memcpy((printer->image->data)+printer->image->data_sz, packet->line_buf, ((printer->image->data_sz + packet->len)) - PRINT_FULL_SZ);
 					printer->image->data_sz += (PRINT_FULL_SZ - (printer->image->data_sz + packet->len));
 					furi_assert(printer->image->data_sz <= PRINT_FULL_SZ);
 				}
@@ -178,10 +178,10 @@ static void byte_callback(void *context, uint8_t val)
 			 */
 		case CMD_PRINT:
 			/* TODO: Be able to memcpy these */
-			printer->image->num_sheets = packet->recv_data[0];
-			printer->image->margins = packet->recv_data[1];
-			printer->image->palette = packet->recv_data[2];
-			printer->image->exposure = packet->recv_data[3];
+			printer->image->num_sheets = packet->line_buf[0];
+			printer->image->margins = packet->line_buf[1];
+			printer->image->palette = packet->line_buf[2];
+			printer->image->exposure = packet->line_buf[3];
 			packet->status &= ~STATUS_READY;
 			packet->status |= (STATUS_PRINTING | STATUS_FULL);
 			furi_thread_flags_set(printer->thread, THREAD_FLAGS_PRINT);
@@ -189,14 +189,14 @@ static void byte_callback(void *context, uint8_t val)
 		case CMD_STATUS:
 			/* READY cleared on status request */
 			packet->status &= ~STATUS_READY;
-			if ((packet->status & STATUS_PRINTING) &&
-			    (packet->status & STATUS_PRINTED)) {
-				packet->status &= ~(STATUS_PRINTING | STATUS_PRINTED);
+			if ((packet->status & STATUS_PRINTING) && packet->print_complete) {
+				packet->status &= ~(STATUS_PRINTING);
+				packet->print_complete = false;
 				furi_thread_flags_set(printer->thread, THREAD_FLAGS_COMPLETE);
 			}
 		}
 
-		packet->recv_data_sz = 0;
+		packet->line_buf_sz = 0;
 		packet->cksum_calc = 0;
 
 
@@ -205,7 +205,7 @@ static void byte_callback(void *context, uint8_t val)
 		 * not printing -> printing -> not printing, etc.
 		 */
 		/* Do a callback here?
-		 * if so, I guess we should wait for callback completion before accepting more recv_data?
+		 * if so, I guess we should wait for callback completion before accepting more line_buf?
 		 * but that means the callback is in an interrupt context, which, is probably okay?
 		 */
 		/* XXX: TODO: NOTE: FIXME:
@@ -257,5 +257,5 @@ void printer_receive_print_complete(void *printer_handle)
 {
 	struct printer_proto *printer = printer_handle;
 
-	printer->packet->status |= STATUS_PRINTED;
+	printer->packet->print_complete = true;
 }
