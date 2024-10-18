@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BSD-2-Clause
+// Copyright (c) 2024 KBEmbedded
+
 #ifndef PRINTER_PROTO_H
 #define PRINTER_PROTO_H
 
