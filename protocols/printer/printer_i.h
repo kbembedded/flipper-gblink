@@ -74,6 +74,14 @@ enum packet_state {
 	STATUS,
 };
 
+enum printer_state {
+	INIT,
+	FILL,
+	FILL_EMPTY,
+	PRINT,
+	PRINT_COMPLETE,
+};
+
 struct packet {
 	uint8_t cmd;
 	bool compress;
