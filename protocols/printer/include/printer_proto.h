@@ -8,8 +8,23 @@
 
 #pragma once
 
+#define STATUS_LOWBATT		(1 << 7)
+#define STATUS_ERR		(1 << 6)
+#define STATUS_JAM		(1 << 5)
+#define STATUS_PKT_ERR		(1 << 4)
+#define STATUS_READY		(1 << 3)
+#define STATUS_FULL		(1 << 2)
+#define STATUS_PRINTING		(1 << 1)
+#define STATUS_CKSUM_ERR	(1 << 0)
+
+/* emulate printer's internal print receive buffer */
+#define TILE_SIZE		16 // 8x8 tile, 2bpp color
+#define WIDTH			20 // 20 tiles wide
+#define HEIGHT			18 // 18 tiles tall
+#define PRINT_FULL_SZ		5760 // (LINE_BUF_SZ * HEIGHT / 2)
+
 enum cb_reason {
-	reason_data,
+	reason_line_xfer,
 	reason_print,
 	reason_complete,
 };
@@ -30,9 +45,8 @@ struct gb_image {
 	/* TODO: Need to play with this more */
 	uint8_t exposure;
 
-	/* Always expected to be 160 px wide */
 	size_t data_sz;
-	uint8_t data[];
+	uint8_t data[PRINT_FULL_SZ];
 };
 
 /**
@@ -122,28 +136,5 @@ const GpioPin *printer_pin_get(void *printer_handle, gblink_bus_pins pin);
  * @param printer_handle Printer instance handle
  */
 void printer_stop(void *printer_handle);
-
-/**
- * Allocate a gb_image structure for use outside of the printer instance
- *
- * Allocates a buffer of the maximum size that the Game Boy Printer can work as
- * a single image, 160x144 px, 20x18 tiles. Provided as a convenience function so
- * higher level applications don't need to know how big of a buffer to create.
- *
- * Useful for, e.g. copying a received image to and the marking that image as
- * "printed".
- *
- * Must be freed manually
- *
- * @returns Pointer to a struct gb_image
- */
-struct gb_image *printer_image_buffer_alloc(void);
-
-/**
- * Free a previously allocated gb_image structure
- *
- * @param image Pointer to gb_image struct
- */
-void printer_image_buffer_free(struct gb_image *image);
 
 #endif // PRINTER_PROTO_H
