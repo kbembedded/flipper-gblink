@@ -4,6 +4,7 @@
 #ifndef PRINTER_I_H
 #define PRINTER_I_H
 
+#include <furi.h>
 #include <protocols/printer/include/printer_proto.h>
 
 #define START_L_BYTE		0x88
@@ -72,14 +73,18 @@ enum packet_state {
 	CKSUM_H,
 	ALIVE,
 	STATUS,
+	COMPLETE,
 };
 
 enum printer_state {
 	INIT,
+	INIT_STATUS,
 	FILL,
-	FILL_EMPTY,
+	FILL_BLANK,
 	PRINT,
+	PRINT_STATUS,
 	PRINT_COMPLETE,
+	NUM_STATES,
 };
 
 struct packet {
@@ -87,7 +92,6 @@ struct packet {
 	bool compress;
 	uint16_t len; // This is stored in the flipper endianness, arrives LSB first from GB, unmodified in code
 	uint8_t line_buf[LINE_BUF_SZ]; // 640 bytes, enough for two lines of tiles
-	uint16_t cksum; // This is stored in the flipper endianness, arrives LSB first from GB
 	uint8_t status;
 	
 	/* These are not part of the packet, but used by us */
@@ -112,8 +116,11 @@ struct printer_proto {
 	void *cb_context;
 
 	struct packet *packet; //packet data used by send()/receive() for tracking
+	enum printer_state state;
+	FuriSemaphore *sem;
 
 	struct gb_image *image; // Details of the current image being sent/received
+	size_t image_data_pos;
 
 	FuriThread *thread;
 };
