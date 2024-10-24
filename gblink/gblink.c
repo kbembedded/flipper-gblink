@@ -220,7 +220,7 @@ static void gblink_clk_configure(struct gblink *gblink)
 	} else {
 		/* This will disable the EXTI interrupt for us */
 		furi_hal_gpio_init(gblink->clk, GpioModeOutputOpenDrain, GpioPullUp, GpioSpeedVeryHigh);
-	};
+	}
 }
 
 void gblink_clk_source_set(void *handle, gblink_clk_source source)
