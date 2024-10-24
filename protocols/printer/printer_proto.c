@@ -109,6 +109,10 @@ void printer_stop(void *printer_handle)
 {
 	struct printer_proto *printer = printer_handle;
 
+	if (printer->sem) {
+		furi_semaphore_free(printer->sem);
+		printer->sem = NULL;
+	}
 	gblink_stop(printer->gblink_handle);
 	/* TODO: Call the callback one last time with a flag to indicate that the transfer has completely
 	 * ended.

@@ -16,6 +16,8 @@
 #define STATUS_FULL		(1 << 2)
 #define STATUS_PRINTING		(1 << 1)
 #define STATUS_CKSUM_ERR	(1 << 0)
+#define STATUS_ERR_MASK		(STATUS_LOWBATT | STATUS_ERR | STATUS_JAM | \
+				 STATUS_PKT_ERR | STATUS_CKSUM_ERR)
 
 /* emulate printer's internal print receive buffer */
 #define TILE_SIZE		16 // 8x8 tile, 2bpp color
