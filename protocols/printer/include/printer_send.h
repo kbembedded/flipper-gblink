@@ -17,8 +17,8 @@
  * can no longer be modified, e.g. the Game Boy Link pinout.
  *
  * @param printer_handle Printer instance handle
- * @param gbimage Pointer to a struct gbimage to print
+ * @param gb_image Pointer to a struct gb_image to print
  */
-void printer_send_start(void *printer_handle, struct gbimage *gbimage);
+void printer_send_start(void *printer_handle, struct gb_image *gb_image);
 
 #endif // PRINTER_SEND_H
