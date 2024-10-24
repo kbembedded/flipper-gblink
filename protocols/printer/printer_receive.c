@@ -99,12 +99,12 @@ static void byte_callback(void *context, uint8_t val)
 		break;
 	case CKSUM_L:
 		packet->state = CKSUM_H;
-		packet->cksum = (val & 0xff);
+		if ((packet->cksum_calc & 0xff) != val)
+			packet->status |= STATUS_CKSUM_ERR;
 		break;
 	case CKSUM_H:
 		packet->state = ALIVE;
-		packet->cksum |= ((val & 0xff) << 8);
-		if (packet->cksum != packet->cksum_calc)
+		if (((packet->cksum_calc >> 8) & 0xff) != val)
 			packet->status |= STATUS_CKSUM_ERR;
 		// TRANSFER does not set checksum bytes
 		if (packet->cmd == CMD_TRANSFER)
