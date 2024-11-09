@@ -4,6 +4,7 @@
 #include <furi.h>
 
 #include <gblink/include/gblink.h>
+#include <gblink/include/gblink_pinconf.h>
 #include <protocols/printer/include/printer_proto.h>
 #include "printer_i.h"
 
@@ -54,6 +55,7 @@ void *printer_alloc(void)
 	printer->image = malloc(sizeof(struct gb_image));
 
 	printer->gblink_handle = gblink_alloc();
+	gblink_pinconf_load(printer->gblink_handle);
 
 	/* Set up some settings for the print protocol. The final send/receive() calls
 	 * may clobber some of these, but that is intentional and they don't need to
@@ -96,24 +98,12 @@ void printer_callback_set(void *printer_handle, void (*callback)(void *context, 
 	printer->callback = callback;
 }
 
-int printer_pin_set_default(void *printer_handle, gblink_pinouts pinout)
+void *printer_gblink_handle_get(void *printer_handle)
 {
 	struct printer_proto *printer = printer_handle;
-	return gblink_pin_set_default(printer->gblink_handle, pinout);
-}
 
-int printer_pin_set(void *printer_handle, gblink_bus_pins pin, const GpioPin *gpio)
-{
-	struct printer_proto *printer = printer_handle;
-	return gblink_pin_set(printer->gblink_handle, pin, gpio);
+	return printer->gblink_handle;
 }
-
-const GpioPin *printer_pin_get(void *printer_handle, gblink_bus_pins pin)
-{
-	struct printer_proto *printer = printer_handle;
-	return gblink_pin_get(printer->gblink_handle, pin);
-}
-
 
 void printer_stop(void *printer_handle)
 {

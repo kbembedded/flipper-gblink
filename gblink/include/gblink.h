@@ -49,7 +49,8 @@ typedef enum {
 } gblink_speed;
 
 typedef enum {
-	PINOUT_ORIGINAL,
+	PINOUT_CUSTOM = -1,
+	PINOUT_ORIGINAL = 0,
 	PINOUT_MALVEKE_EXT1,
 	PINOUT_COUNT,
 } gblink_pinouts;

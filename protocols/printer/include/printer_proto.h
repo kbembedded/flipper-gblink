@@ -91,42 +91,6 @@ void printer_callback_context_set(void *printer_handle, void *context);
  */
 void printer_callback_set(void *printer_handle, void (*callback)(void *context, struct gb_image *image, enum cb_reason reason));
 
-/* Can only be run after alloc, before start */
-/**
- * Set one of the pre-configured pinouts
- *
- * @param printer_handle Printer instance handle
- * @param pinout Which pinout to use
- *
- * @note The printer instance must not be actively sending or receiving
- *
- * @returns 0 on success, 1 if gblink instance is not gblink_stop()'ed.
- */
-int printer_pin_set_default(void *printer_handle, gblink_pinouts pinout);
-
-/**
- * Set a gpio pin to a specific pin mode
- *
- * @param printer_handle Printer instance handle
- * @param pin Pin mode to assign to the gpio pin
- * @param gpio Which gpio pin to assign the pin mode
- *
- * @note The printer instance must not be actively sending or receiving
- *
- * @returns 0 on success, 1 if gblink instance is not gblink_stop()'ed.
- */
-int printer_pin_set(void *printer_handle, gblink_bus_pins pin, const GpioPin *gpio);
-
-/**
- * Get the gpio pin associated with the requested pin mode
- *
- * @param printer_handle Printer instance handle
- * @param pin Pin mode to inquire about
- *
- * @returns GpioPin pointer
- */
-const GpioPin *printer_pin_get(void *printer_handle, gblink_bus_pins pin);
-
 /**
  * Stop a printer instance
  *
@@ -136,5 +100,18 @@ const GpioPin *printer_pin_get(void *printer_handle, gblink_bus_pins pin);
  * @param printer_handle Printer instance handle
  */
 void printer_stop(void *printer_handle);
+
+/**
+ * Get the gblink handle associated with the printer instance.
+ *
+ * @warning It is not recommended to use this to change any gblink variables other
+ * than pin settings! Changing any other settings such as mode, speed, timeout,
+ * callback, etc., can break printer communication.
+ *
+ * @param printer_handle Printer instance handle
+ *
+ * @returns Pointer that can be used with gblink calls directly
+ */
+void *printer_gblink_handle_get(void *printer_handle);
 
 #endif // PRINTER_PROTO_H
