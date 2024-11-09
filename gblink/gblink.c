@@ -321,6 +321,29 @@ int gblink_pin_set_default(void *handle, gblink_pinouts pinout)
 	return 0;
 }
 
+int gblink_pin_get_default(void *handle)
+{
+	furi_assert(handle);
+	struct gblink *gblink = handle;
+	int i;
+
+	for (i = 0; i < PINOUT_COUNT; i++) {
+		if (gblink->serin != common_pinouts[i].serin)
+			continue;
+		if (gblink->serout != common_pinouts[i].serout)
+			continue;
+		if (gblink->clk != common_pinouts[i].clk)
+			continue;
+		/* XXX: Currently not checked or used! */
+		//if (gblink->sd != common_pinouts[pinout].sd;
+		break;
+	}
+
+	if (i == PINOUT_COUNT)
+		i = -1;
+
+	return i;
+}
 
 const GpioPin *gblink_pin_get(void *handle, gblink_bus_pins pin)
 {

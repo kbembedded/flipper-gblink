@@ -137,6 +137,15 @@ bool gblink_transfer(void *handle, uint8_t val);
 int gblink_pin_set_default(void *handle, gblink_pinouts pinout);
 
 /**
+ * Check if the pinout set matches a pre-configured one
+ *
+ * @param handle Pointer to gblink handle
+ *
+ * @returns The index of the pre-configured pinout or -1 on error
+ */
+int gblink_pin_get_default(void *handle);
+
+/**
  * Set a gpio pin to a specific pin mode
  *
  * @param handle Pointer to gblink handle
