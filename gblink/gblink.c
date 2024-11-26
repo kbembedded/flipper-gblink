@@ -155,7 +155,20 @@ void gblink_clk_source_set(void *handle, gblink_clk_source source)
 	gblink->source = source;
 	gblink->shift = 0;
 
-	gblink_clk_configure(gblink);
+	/* If gblink is _not_ start()ed, then we _don't_ want to call the clk_configure
+	 * function.
+	 * This is because we don't want to mess with any of the GPIO settings until
+	 * gblink_start() is called since that needs to do some careful setup of
+	 * the IO pins and then calls clk_configure() after. If we ever need to
+	 * change the clock in the middle of things, then we _need_ to call
+	 * clk_configure.
+	 */
+	if (furi_mutex_acquire(gblink->start_mutex, 0) != FuriStatusOk)
+		gblink_clk_configure(gblink);
+	else
+		/* Put the mutex back in case we did acquire it */
+		furi_mutex_release(gblink->start_mutex);
+
 }
 
 void gblink_speed_set(void *handle, gblink_speed speed)
@@ -360,6 +373,7 @@ void gblink_start(void *handle)
 	 * See the work done in pokemon trade tool custom pinout selection for
 	 * an idea of how to check all that.
 	 */
+	furi_hal_gpio_write(gblink->clk, true);
 	furi_hal_gpio_write(gblink->serout, false);
 	furi_hal_gpio_init(gblink->serout, GpioModeOutputPushPull, GpioPullNo, GpioSpeedVeryHigh);
 	furi_hal_gpio_write(gblink->serin, false);
