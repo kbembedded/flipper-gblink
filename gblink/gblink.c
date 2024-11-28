@@ -366,7 +366,7 @@ void gblink_start(void *handle)
 	furi_hal_gpio_init(gblink->serin, GpioModeInput, GpioPullUp, GpioSpeedVeryHigh);
 
 	/* Set up interrupt on clock pin */
-	if (gblink->clk == &gpio_ext_pb3) {
+	if (gblink->clk == &gpio_ext_pb3 || gblink->clk == &gpio_ext_pc3) {
 		/* The clock pin is on a pin that is not safe to set an interrupt
 		 * on, so we do a gross workaround to get an interrupt enabled
 		 * on that pin in a way that can be undone safely later with
@@ -402,7 +402,7 @@ void gblink_stop(void *handle)
 		return;
 	}
 
-	if (gblink->clk == &gpio_ext_pb3) {
+	if (gblink->clk == &gpio_ext_pb3 || gblink->clk == &gpio_ext_pc3) {
 		/* This handles switching the IVT back and putting the EXTI
 		 * regs and pin regs in a valid state for normal use.
 		 */
