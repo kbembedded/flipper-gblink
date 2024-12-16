@@ -15,11 +15,47 @@
 #define CMD_PRINT		0x02
 #define CMD_TRANSFER		0x10
 #define CMD_DATA		0x04
+#define CMD_BREAK		0x08 // Interrupt printing in progress
 #define CMD_STATUS		0x0f
 
 /* These constants are private to the printer protocol */
 #define LINE_BUF_SZ		640 // (TILE_SIZE * WIDTH * 2)
 #define TRANSFER_SZ		3584 // (16*16*14) // Image minus frame
+
+/* Hooray! Real numbers and not using guesses made by other GB printer projects!
+ *
+ * From https://ia903208.us.archive.org/9/items/GameBoyProgManVer1.1/GameBoyProgManVer1.1.pdf
+ *
+ * There are a couple of different timeouts used for the printer.
+ * Inter-byte timeouts:
+ * 	An interval of 270 us to 5 ms must be interposed between each byte.
+ * 	XXX: I am unsure what happens at this time when these are exceeded
+ *
+ * Inter-packet timeouts:
+ * 	An interval of 270 us to 117 ms must be allowed between the transfer
+ * 	of each packet.
+ * 	XXX: From observations, need to confirm, when exceeded this will
+ * 	reset the printer state. Need to confirm in manual
+ *
+ * Syncronization/pings:
+ * 	Once connection is confirmed (XXX: What does that mean?), the printer
+ * 	must be sent STATUS (aka NUL) packet every 100 ms. If this is exceeded
+ * 	(as noted above) the printer will return to an initialized state (XXX: Which state is that)
+ * 	XXX: In practice, this seems to only matter when communicating with the
+ * 	printer, i.e. waiting for a print to complete can simply stop, but,
+ * 	that is probably not the best choice.
+ *
+ *
+ * Errors:
+ * The GB programming manual establishes some standard error codes
+ * Low battery == Error No. 1
+ * Paper Jam/abnormal motor operation == Error No. 3
+ * Other error == Error No. 4
+ * Status bytes 0xff 0xff == Error No. 2 (Essentially, no printer connected)
+ *
+ * No other error bits seem to really generate a real error?
+ *
+ */
 
 /* NOTE:
  * These numbers are empirically gathered from a few different games thus far.
