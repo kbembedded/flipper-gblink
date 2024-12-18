@@ -13,10 +13,10 @@
 
 #define CMD_INIT		0x01
 #define CMD_PRINT		0x02
-#define CMD_TRANSFER		0x10
+#define CMD_TRANSFER		0x10 // Custom command from Photo! ROM
 #define CMD_DATA		0x04
 #define CMD_BREAK		0x08 // Interrupt printing in progress
-#define CMD_STATUS		0x0f
+#define CMD_STATUS		0x0F // Also referred to as a NUL packet
 
 /* These constants are private to the printer protocol */
 #define LINE_BUF_SZ		640 // (TILE_SIZE * WIDTH * 2)
@@ -47,13 +47,73 @@
  *
  *
  * Errors:
- * The GB programming manual establishes some standard error codes
- * Low battery == Error No. 1
- * Paper Jam/abnormal motor operation == Error No. 3
- * Other error == Error No. 4
- * Status bytes 0xff 0xff == Error No. 2 (Essentially, no printer connected)
+ * Status byte is as follows:
+ * 	bit 7: 1 == Low battery
+ * 	bit 6: 1 == Other Error
+ * 	bit 6: 1 == Paper jam (abnormal motor operation)
+ * 	bit 4: 1 == Packet error
+ * 	bit 3: 1 == Unprocessed data in printer RAM
+ * 	bit 2: 1 == Image Data Full
+ * 	bit 1: 1 == Printer Busy
+ * 	bit 0: 1 == Checksum error 
+ * The GB programming manual establishes some standard error codes:
+ *	Low battery == Error No. 1
+ *	Status bytes 0xff 0xff == Error No. 2 (Essentially, no printer connected)
+ *	Paper Jam/abnormal motor operation == Error No. 3
+ *	Other error == Error No. 4
+ * A value other than ALIVE_BYTE means a device that is not a printer is connected,
+ * this should be conveyed in an error message.
+ * Error recovery must sever communication with printer, and inform the user.
  *
- * No other error bits seem to really generate a real error?
+ * The ALIVE_BTYE MSB is technically the "device number." The MSB is always set
+ * and the lower bits indicate device number, the printer is device number 1.
+ * I would guess that this was intended for other future devices to be able
+ * to work with this protocol, but nothing was ever created.
+ *
+ * Packet format
+ * 	Preamble	Header									Data		Checksum			Footer
+ * From GB:
+ * 	0x88,	0x31,	Type,	Compress,	LSB data byte count,	MSB data byte count,	Data byte(s),	LSB CKSUM,	MSB CKSUM,	Dummy,	Dummy
+ * From Printer:
+ * 	NULL,	NULL,	NULL,	NULL,		NULL,			NULL,			NULL,		NULL		NULL,		0x81,	STATUS
+ *
+ * Command/packet details:
+ * CMD_INIT:
+ * 	Used to init printer and check connection. Must be sent first. Resets
+ * 	transferred data held in RAM.
+ *
+ * 	Has no data bytes
+ *
+ * CMD_PRINT:
+ * 	Used to initiate a print from the current buffer.
+ *
+ * 	Data bytes:
+ * 	Byte 1: Number of sheets to print, 0-255, 0 == line feed only
+ * 		- Link partner need to be able to implement CMD_BREAK to be able
+ * 		to halt a print job in progress!
+ * 		- If CMD_PRINT is sent within 100 ms of the motor being stopped
+ * 		(CMD_BREAK), resume may be incorrect. Wait at least 100 ms after
+ * 		the motor has been stopped!
+ * 	Byte 2: Number of line feeds, upper 4 bits feeds before printing,
+ * 		lower 4 bits feeds after printing; both values 0-15.
+ * 		- Each feed is 2.64 mm in length
+ * 		- Always set number of line feeds before printing to 1 or
+ * 		greater and after printing to 3 or greater except when doing
+ * 		a continuous, multi-image print with both values as 0 for in
+ * 		between feeds. Other values for parameters may result in double
+ * 		printing o the same line or failure of the last line to reach
+ * 		the paper cutter.
+ * 	Byte 3: Palette values, basically useless for the printer, but, could
+ *		be used when printing to something else. XXX: Consider implementing
+ *		this in some way?
+ *	Byte 4: Print _density_ XXX: Is that a typo, or is every other RE doc wrong
+ *		in calling it intensity?
+ *		0-127, -25%  0%    +25%
+ *		       0x00  0x40  0x7F
+ * CMD_DATA:
+ * 	Compression seems to (sensibly) only be applicable on data packets.
+ *
+ * 	
  *
  */
 
