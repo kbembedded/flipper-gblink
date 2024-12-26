@@ -13,6 +13,8 @@
 
 /* The reset doesn't need to copy any data since that will be handled in
  * the main callback
+ *
+ * XXX: I think this should be packet reset?
  */
 static void printer_reset(struct printer_proto *printer)
 {
@@ -237,6 +239,10 @@ void printer_send_start(void *printer_handle, struct gb_image *image)
 		furi_semaphore_acquire(printer->sem, FuriWaitForever);
 		FURI_LOG_D("send", "pos %d, sz %d", printer->image_data_pos, printer->image->data_sz);
 		furi_delay_us(560);
+		if (printer->state == PRINT_STATUS) {
+			if (printer->packet->status & STATUS_PRINTING)
+				printer->state--; // Rerun the PRINT_STATUS state until we're dong printing
+		}
 		/* TODO: Check printer->packet->status? */
 	}
 

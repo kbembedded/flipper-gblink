@@ -21,4 +21,7 @@
  */
 void printer_send_start(void *printer_handle, struct gb_image *gb_image);
 
+/* Break the current print. Not yet implemented */
+void printer_send_break(void *printer_handle);
+
 #endif // PRINTER_SEND_H

@@ -10,7 +10,6 @@
 
 /* XXX: Does this make sense to be a message dispatcher rather than calling callbacks?
  * In order to keep the stack small for the thread, need to be weary of all calls made from here. */
-/* XXX TODO Test using a timer pending callback instead of this */
 /* XXX: TODO: Create a more streamlined callback that can simply pass a struct that has
  * pointers to data, sz, reason, margins (aka is there more data coming), etc., could even place
  * the callback context in there which would allow using the timer pending callback function
@@ -22,6 +21,7 @@ static int32_t printer_callback_thread(void *context)
 
 	while (1) {
 		/* XXX: TODO: align flags and enum cb_reason to share them */
+		/* XXX: TODO: Add error codes here as well. */
 		flags = furi_thread_flags_wait(THREAD_FLAGS_ALL, FuriFlagWaitAny, FuriWaitForever);
 		furi_check(!(flags & FuriFlagError));
 		if (flags & THREAD_FLAGS_EXIT)
@@ -55,6 +55,9 @@ void *printer_alloc(void)
 	printer->image = malloc(sizeof(struct gb_image));
 
 	printer->gblink_handle = gblink_alloc();
+	/* XXX: Consider moving this out of this function and letting it be the
+	 * responsibility of the whole app and not the printer proto handling.
+	 */
 	gblink_pinconf_load(printer->gblink_handle);
 
 	/* Set up some settings for the print protocol. The final send/receive() calls
@@ -64,6 +67,13 @@ void *printer_alloc(void)
 	/* Reported 1.49 ms timeout between bytes, need confirmation */
 	gblink_timeout_set(printer->gblink_handle, 1490);
 	gblink_nobyte_set(printer->gblink_handle, 0x00);
+
+	/* Set up some defaults for print configuration that may be used by
+	 * the print from flipper to printer feature.
+	 */
+	printer->num_sheets = 1;
+	printer->margins = 0x13; // Header:footer, probably don't need to mess with the header much?
+	printer->exposure = 0x40; // ±0%
 
 	return printer;
 }

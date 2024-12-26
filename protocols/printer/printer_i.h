@@ -122,6 +122,10 @@ struct printer_proto {
 	struct gb_image *image; // Details of the current image being sent/received
 	size_t image_data_pos;
 
+	uint8_t num_sheets;
+	uint8_t margins;
+	uint8_t exposure;
+
 	FuriThread *thread;
 };
 
