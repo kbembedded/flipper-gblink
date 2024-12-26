@@ -55,7 +55,6 @@ void *printer_alloc(void)
 	printer->image = malloc(sizeof(struct gb_image));
 
 	printer->gblink_handle = gblink_alloc();
-	gblink_pinconf_load(printer->gblink_handle);
 
 	/* Set up some settings for the print protocol. The final send/receive() calls
 	 * may clobber some of these, but that is intentional and they don't need to
