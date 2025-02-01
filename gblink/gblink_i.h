@@ -43,6 +43,11 @@ struct gblink {
 	 */
 	FuriMutex *start_mutex;
 
+	/* Bottom half handler for incoming data */
+	FuriThread *thread;
+	/* Message queue for the bottom half handler */
+	FuriMessageQueue *mqueue;
+
 	/*
 	 * The following should probably have the world stopped around them
 	 * if not modified in an interrupt context.

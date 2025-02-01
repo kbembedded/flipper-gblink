@@ -20,76 +20,123 @@ static inline bool gblink_transfer_in_progress(struct gblink *gblink)
 	return !(furi_semaphore_get_count(gblink->out_byte_sem));
 }
 
+/* Okay, how do I want to make this work.
+ * Need to have interrupt handle incoming bits. This needs to be fast and short.
+ * Shift data in, out, done. Maybe have a small buffer of some kind? This way
+ * the interrupt could service interrupts even while we're processing a byte.
+ * The problem there is, how do we get data out during that since we might not
+ * know what the next byte should be yet. So, transactions I guess should always
+ * be a byte at a time.
+ * For games, what is here now works just fine. But I specifically want to focus
+ * on the transfer modes from Photo! For this, the gameboy doesn't care about
+ * what is sent back. So maybe the circular buffer would be useful there...
+ *
+ * In any case, once 8 bits are shifted in, send a signal to the byte callback.
+ * Hopefully, this can complete before the next byte callback is hit.
+ *
+ * Need to better understand options for having messages sent to another thread,
+ * or probably more easier, a semaphore of some kind? I can use the receive value
+ * to set flags to the other thread. How many flags can you stack up? Maybe just
+ * do an mqueue? That could let me consume data on the thread side in varying
+ * loop chunks. Could also maybe even deal with dynamic buffers a bit?
+ *
+ * The goal with that would be not having to deal with a mutex.
+ *
+ * The interrupt also needs to check for timeouts and reset counter. The buffer
+ * can just be forever rotating in. Out is a bit more tricky and may need a mutex
+ * of some kind.
+ */
+/* OKAY! Thoughts!
+ *
+ * I make the mqueue each be two bytes. As much as I hate the added space, it adds a lot of flexibility
+ * The flag byte could be:
+ * DAT_TX aka send this byte the next time you clock out data. 
+ * DAT_RX This was the last byte received (the interrupt thread would use this) call the main callback or set the data+byte received bit
+ * THREAD_END to start shutting down the thread
+ * Could also use it to set variables like, speed, nobyte, etc.
+ *
+ * Upon further consideration, I think that is overkill. Sticking with the mutex(s) and just having this
+ * thread deal with callback handling should be better.
+ *
+ * So, to try and remind myself of scope.
+ * This thread is going to be as light as possible to be the bottom half of the interrupt handler.
+ * 
+ * Is there any sane way to have a generic thread spawned to handle TXing data? The only real example
+ * I can think of is for the printer which would probably want its own thread to send data, otherwise its
+ * going to be consuming CPU a bunch. e.g. I think if I had a view, that on enter could start sending data, but
+ * it would block the whole time since I think until I return from an event callback, I can't receive another one.
+ * So I would need another thread that has the data loaded up, in order to spin on sending it.
+ */
+/* How would I, using just an mqueue, send a message to this thread to stop...
+ */
+
+/* Whenever this thread is running, the start_mutex is acquired so we're safe to 
+ * access variables that cannot be modified safely at that point.
+ */
+static int32_t gblink_thread(void *context)
+{
+	struct gblink *gblink = context;
+	uint8_t msg;
+
+	/* Clear all flags as a precaution */
+	furi_thread_flags_clear(0xffffffff);
+
+	while(1) {
+		/* This is the bottom half of the interrupt handler. This is
+		 * only ever called when a full byte has been received
+		 */
+		/* How to get a message that this thread should close? Maybe
+		 * do a flag check on a message being sent? That would create an
+		 * additional check every byte.
+		 * Could make the mqueue wider, but that would add additional data
+		 * copy every byte (and a deeper stack). I could use a semaphore?
+		 * This would still be a check every loop, but would it be faster?
+		 */
+		if (furi_message_queue_get(gblink->mqueue, &msg, FuriWaitForever) == FuriStatusOk) {
+			/* Right now, any flag set means close down the thread */
+			if (furi_thread_flags_get())
+				break;
+
+			/* 
+			 * Set up next out byte before calling the callback.
+			 * This is in case the callback itself sets a new out
+			 * byte which it will in most cases.
+			 *
+			 * The nobyte value is set in place as the next output byte,
+			 * in case the flipper does not set a real byte before the next
+			 * transfer starts.
+			 */
+			gblink->out = gblink->nobyte;
+			furi_semaphore_release(gblink->out_byte_sem);
+
+			/* 
+			 * Call the callback, if set, and then release the semaphore
+			 * in case a thread is waiting on TX to complete.
+			 */
+			if (gblink->callback)
+				gblink->callback(gblink->cb_context, msg);
+
+			furi_semaphore_release(gblink->transfer_sem);
+		}
+	}
+
+	return 0;
+}
+
+
 /* XXX: TODO: Investigate how exceeding the timeout would work if in INT clock
  * mode. I think this would reset the state machine, but, I don't think the
  * transfer would be restarted with the correct data.
+ *
+ * The timer is an interrupt driven hardware timer, so, it should be fine for
+ * all uses.
  */
-static void gblink_shift_in_isr(struct gblink *gblink)
-{
-	const uint32_t time_ticks = furi_hal_cortex_instructions_per_microsecond() * gblink->bitclk_timeout_us;
-
-	if (gblink->source == GBLINK_CLK_INT)
-		furi_hal_gpio_write(gblink->clk, 1);
-
-	/* If we exceeded the bit clock timeout, reset all counters */
-	if ((DWT->CYCCNT - gblink->time) > time_ticks) {
-		gblink->in = 0;
-		gblink->shift = 0;
-	}
-	gblink->time = DWT->CYCCNT;
-
-	gblink->in <<= 1;
-	gblink->in |= furi_hal_gpio_read(gblink->serin);
-	gblink->shift++;
-	/* If 8 bits transfered, reset shift counter, call registered
-	 * callback, re-set nobyte in output buffer.
-	 */
-	if (gblink->shift == 8) {
-	 	if (gblink->source == GBLINK_CLK_INT)
-			clock_timer_stop();
-
-		gblink->shift = 0;
-
-		/* 
-		 * Set up next out byte before calling the callback.
-		 * This is in case the callback itself sets a new out
-		 * byte which it will in most cases.
-		 *
-		 * The nobyte value is set in place as the next output byte,
-		 * in case the flipper does not set a real byte before the next
-		 * transfer starts.
-		 */
-		gblink->out = gblink->nobyte;
-		furi_semaphore_release(gblink->out_byte_sem);
-
-		/* 
-		 * Call the callback, if set, and then release the semaphore
-		 * in case a thread is waiting on TX to complete.
-		 */
-		if (gblink->callback)
-			gblink->callback(gblink->cb_context, gblink->in);
-
-		furi_semaphore_release(gblink->transfer_sem);
-	}
-}
-
-static void gblink_shift_out_isr(struct gblink *gblink)
-{
-	furi_semaphore_acquire(gblink->out_byte_sem, 0);
-	furi_hal_gpio_write(gblink->serout, !!(gblink->out & 0x80));
-	gblink->out <<= 1;
-
-	/* XXX: TODO: Check that this is the correct thing with open drain.
-	 * does 0 value actually drive the line low, or high?
-	 */
-	if (gblink->source == GBLINK_CLK_INT)
-		furi_hal_gpio_write(gblink->clk, 0);
-}
 
 static void gblink_clk_isr(void *context)
 {
 	furi_assert(context);
 	struct gblink *gblink = context;
+	const uint32_t time_ticks = furi_hal_cortex_instructions_per_microsecond() * gblink->bitclk_timeout_us;
 	bool out = false;
 
 	/* 
@@ -106,10 +153,45 @@ static void gblink_clk_isr(void *context)
 	out = (furi_hal_gpio_read(gblink->clk) ==
 	      (gblink->source == GBLINK_CLK_INT));
 
-	if (out)
-		gblink_shift_out_isr(gblink);
-	else
-		gblink_shift_in_isr(gblink);
+	if (out) {
+		furi_semaphore_acquire(gblink->out_byte_sem, 0);
+		furi_hal_gpio_write(gblink->serout, !!(gblink->out & 0x80));
+		gblink->out <<= 1;
+
+		/* XXX: TODO: Check that this is the correct thing with open drain.
+		 * does 0 value actually drive the line low, or high?
+		 */
+		if (gblink->source == GBLINK_CLK_INT)
+			furi_hal_gpio_write(gblink->clk, 0);
+	} else {
+
+		if (gblink->source == GBLINK_CLK_INT)
+			furi_hal_gpio_write(gblink->clk, 1);
+
+		/* If we exceeded the bit clock timeout, reset all counters */
+		if ((DWT->CYCCNT - gblink->time) > time_ticks) {
+			gblink->shift = 0;
+		}
+		gblink->time = DWT->CYCCNT;
+
+		gblink->in <<= 1;
+		gblink->in |= furi_hal_gpio_read(gblink->serin);
+		gblink->shift++;
+		/* If 8 bits transfered, reset shift counter, call registered
+		 * callback, re-set nobyte in output buffer.
+		 */
+		if (gblink->shift == 8) {
+		/* TODO: All of this gets shoved in the bottom half */
+		 	if (gblink->source == GBLINK_CLK_INT)
+				clock_timer_stop();
+
+			gblink->shift = 0;
+			/* XXX: TODO: Send message to bottom half here */
+			furi_message_queue_put(gblink->mqueue, &gblink->in, 0);
+		}
+
+
+	}
 }
 
 /* 
@@ -323,11 +405,21 @@ void *gblink_alloc(void)
 
 	/* Allocate and zero struct */
 	gblink = malloc(sizeof(struct gblink));
-	//gblink->spec = malloc(sizeof(struct gblink_spec));
 
 	gblink->transfer_sem = furi_semaphore_alloc(1, 1);
 	gblink->out_byte_sem = furi_semaphore_alloc(1, 1);
 	gblink->start_mutex = furi_mutex_alloc(FuriMutexTypeNormal);
+
+	/* XXX: Absurdly large for testing */
+	gblink->mqueue = furi_message_queue_alloc(512, sizeof(uint8_t));
+
+	/* Start the bottom half handler thread */
+	gblink->thread = furi_thread_alloc_ex("GBLinkRX",
+						1024,
+						gblink_thread,
+						gblink);
+	/* Run it at a really high priority, but still let interrupts run */
+	furi_thread_set_priority(gblink->thread, FuriThreadPriorityHighest);
 
 	/* Set defaults */
 	gblink_pin_set_default(gblink, PINOUT_ORIGINAL);
@@ -350,6 +442,11 @@ void gblink_start(void *handle)
 	/* XXX: Check callback is valid */
 
 	furi_mutex_acquire(gblink->start_mutex, FuriWaitForever);
+
+	/* XXX: Start our bottom half thread!
+	 * Before returning, spin waiting for confirmation that
+	 * the thread is active and running.
+	 */
 
 	/* Set up pins */
 	/* TODO: Set up a list of pins that are not safe to use with interrupts.
@@ -385,12 +482,16 @@ void gblink_start(void *handle)
 	gblink_int_disable(gblink);
 
 	gblink_clk_configure(gblink);
+
+	/* Start our bottom half handler */
+	furi_thread_start(gblink->thread);
 }
 
 void gblink_stop(void *handle)
 {
 	furi_assert(handle);
 	struct gblink *gblink = handle;
+	uint8_t msg = 123;
 
 	/* If we can acquire the mutex, that means start was never actually
 	 * called. Crash.
@@ -415,6 +516,13 @@ void gblink_stop(void *handle)
 	furi_hal_gpio_init_simple(gblink->serout, GpioModeAnalog);
 	furi_hal_gpio_init_simple(gblink->clk, GpioModeAnalog);
 
+	/* Shut down the bottom half. We need to send a nonzero flag, then a message
+	 * start the thread shutdown process.
+	 */
+	furi_thread_flags_set(gblink->thread, 1);
+	furi_message_queue_put(gblink->mqueue, &msg, FuriWaitForever);
+	furi_thread_join(gblink->thread);
+
 	furi_mutex_release(gblink->start_mutex);
 }
 
@@ -431,9 +539,12 @@ void gblink_free(void *handle)
 		furi_crash();
 		return;
 	}
+
+	furi_message_queue_free(gblink->mqueue);
 	furi_mutex_release(gblink->start_mutex);
 	furi_mutex_free(gblink->start_mutex);
 	furi_semaphore_free(gblink->transfer_sem);
 	furi_semaphore_free(gblink->out_byte_sem);
+	furi_thread_free(gblink->thread);
 	free(gblink);
 }
