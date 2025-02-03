@@ -144,8 +144,8 @@ static void gblink_clk_isr(void *context)
 {
 	furi_assert(context);
 	struct gblink *gblink = context;
-	const uint32_t time_ticks = furi_hal_cortex_instructions_per_microsecond() * gblink->bitclk_timeout_us;
-	bool out = false;
+	//const uint32_t time_ticks = furi_hal_cortex_instructions_per_microsecond() * gblink->bitclk_timeout_us;
+	//bool out = false;
 
 #ifdef PERF_TEST
 	furi_hal_gpio_write(&gpio_ext_pc0, true);
@@ -161,29 +161,32 @@ static void gblink_clk_isr(void *context)
 	 * The actual in/out functions drive the clock state at the right times
 	 * if the clock is internal source.
 	 */
-	out = (furi_hal_gpio_read(gblink->clk) ==
-	      (gblink->source == GBLINK_CLK_INT));
+	//out = (furi_hal_gpio_read(gblink->clk) ==
+	//      (gblink->source == GBLINK_CLK_INT));
+	//out = !furi_hal_gpio_read(gblink->clk);
 
+#if 0
 	if (out) {
-		furi_semaphore_acquire(gblink->out_byte_sem, 0);
+		//furi_semaphore_acquire(gblink->out_byte_sem, 0);
 		furi_hal_gpio_write(gblink->serout, !!(gblink->out & 0x80));
 		gblink->out <<= 1;
 
 		/* XXX: TODO: Check that this is the correct thing with open drain.
 		 * does 0 value actually drive the line low, or high?
 		 */
-		if (gblink->source == GBLINK_CLK_INT)
-			furi_hal_gpio_write(gblink->clk, 0);
+		//if (gblink->source == GBLINK_CLK_INT)
+		//	furi_hal_gpio_write(gblink->clk, 0);
 	} else {
+#endif
 
-		if (gblink->source == GBLINK_CLK_INT)
-			furi_hal_gpio_write(gblink->clk, 1);
+		//if (gblink->source == GBLINK_CLK_INT)
+		//	furi_hal_gpio_write(gblink->clk, 1);
 
 		/* If we exceeded the bit clock timeout, reset all counters */
-		if ((DWT->CYCCNT - gblink->time) > time_ticks) {
-			gblink->shift = 0;
-		}
-		gblink->time = DWT->CYCCNT;
+		//if ((DWT->CYCCNT - gblink->time) > time_ticks) {
+		//	gblink->shift = 0;
+		//}
+		//gblink->time = DWT->CYCCNT;
 
 		gblink->in <<= 1;
 		gblink->in |= furi_hal_gpio_read(gblink->serin);
@@ -193,8 +196,8 @@ static void gblink_clk_isr(void *context)
 		 */
 		if (gblink->shift == 8) {
 		/* TODO: All of this gets shoved in the bottom half */
-		 	if (gblink->source == GBLINK_CLK_INT)
-				clock_timer_stop();
+		 	//if (gblink->source == GBLINK_CLK_INT)
+			//	clock_timer_stop();
 
 			gblink->shift = 0;
 			/* XXX: TODO: Send message to bottom half here */
@@ -202,7 +205,7 @@ static void gblink_clk_isr(void *context)
 		}
 
 
-	}
+	//}
 
 #ifdef PERF_TEST
 	furi_hal_gpio_write(&gpio_ext_pc0, false);
@@ -216,7 +219,7 @@ static void gblink_clk_isr(void *context)
 static void gblink_clk_configure(struct gblink *gblink)
 {
 	if (gblink->source == GBLINK_CLK_EXT) {
-		furi_hal_gpio_init(gblink->clk, GpioModeInterruptRiseFall, GpioPullUp, GpioSpeedVeryHigh);
+		furi_hal_gpio_init(gblink->clk, GpioModeInterruptRise, GpioPullUp, GpioSpeedVeryHigh);
 		/* furi_hal_gpio_init, while it sets interrupt settings on the GPIO,
 		 * does not actually enable the EXTI interrupt.
 		 */
