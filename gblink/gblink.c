@@ -94,7 +94,9 @@ static void gblink_clk_isr(void *context)
 	struct gblink *gblink = context;
 	bool out = false;
 
+#ifdef PERF_TEST
 	furi_hal_gpio_write(&gpio_ext_pc0, true);
+#endif
 	/* 
 	 * Whether we're shifting in or out is dependent on the clock source.
 	 * If external, and the clock line is high, that means a posedge just
