@@ -15,6 +15,8 @@
 #include "exti_workaround_i.h"
 #include "clock_timer_i.h"
 
+//#define PERF_TEST 1
+
 static inline bool gblink_transfer_in_progress(struct gblink *gblink)
 {
 	return !(furi_semaphore_get_count(gblink->out_byte_sem));
@@ -93,6 +95,9 @@ static int32_t gblink_thread(void *context)
 		 * This would still be a check every loop, but would it be faster?
 		 */
 		if (furi_message_queue_get(gblink->mqueue, &msg, FuriWaitForever) == FuriStatusOk) {
+#ifdef PERF_TEST
+	furi_hal_gpio_write(&gpio_ext_pc1, true);
+#endif
 			/* Right now, any flag set means close down the thread */
 			if (furi_thread_flags_get())
 				break;
@@ -117,6 +122,9 @@ static int32_t gblink_thread(void *context)
 				gblink->callback(gblink->cb_context, msg);
 
 			furi_semaphore_release(gblink->transfer_sem);
+#ifdef PERF_TEST
+			furi_hal_gpio_write(&gpio_ext_pc1, false);
+#endif
 		}
 	}
 
@@ -139,6 +147,9 @@ static void gblink_clk_isr(void *context)
 	const uint32_t time_ticks = furi_hal_cortex_instructions_per_microsecond() * gblink->bitclk_timeout_us;
 	bool out = false;
 
+#ifdef PERF_TEST
+	furi_hal_gpio_write(&gpio_ext_pc0, true);
+#endif
 	/* 
 	 * Whether we're shifting in or out is dependent on the clock source.
 	 * If external, and the clock line is high, that means a posedge just
@@ -192,6 +203,10 @@ static void gblink_clk_isr(void *context)
 
 
 	}
+
+#ifdef PERF_TEST
+	furi_hal_gpio_write(&gpio_ext_pc0, false);
+#endif
 }
 
 /* 
@@ -461,6 +476,13 @@ void gblink_start(void *handle)
 	furi_hal_gpio_init(gblink->serout, GpioModeOutputPushPull, GpioPullNo, GpioSpeedVeryHigh);
 	furi_hal_gpio_write(gblink->serin, false);
 	furi_hal_gpio_init(gblink->serin, GpioModeInput, GpioPullUp, GpioSpeedVeryHigh);
+#ifdef PERF_TEST
+	furi_hal_gpio_write(&gpio_ext_pc0, false);
+	furi_hal_gpio_init(&gpio_ext_pc0, GpioModeOutputPushPull, GpioPullNo, GpioSpeedVeryHigh);
+	furi_hal_gpio_write(&gpio_ext_pc1, false);
+	furi_hal_gpio_init(&gpio_ext_pc1, GpioModeOutputPushPull, GpioPullNo, GpioSpeedVeryHigh);
+#endif
+
 
 	/* Set up interrupt on clock pin */
 	if (gblink->clk == &gpio_ext_pb3 || gblink->clk == &gpio_ext_pc3) {
