@@ -15,6 +15,18 @@
 #include "exti_workaround_i.h"
 #include "clock_timer_i.h"
 
+//#define PERF_TEST 1
+/* If enabled, the PERF_TEST will setup PC0 and PC1 for testing IRQ and bottom-
+ * half latency testing.
+ *
+ * PC0 is set high at the start of the hardware interrupt, and set low just before
+ * returning.
+ *
+ * PC1 is set high by the bottom-half thread once a message is read out of the
+ * mqueue, and set low again just before looping back to the top to sleep waiting
+ * for the next message.
+ */
+
 static inline bool gblink_transfer_in_progress(struct gblink *gblink)
 {
 	return !(furi_semaphore_get_count(gblink->out_byte_sem));
@@ -47,6 +59,9 @@ static int32_t gblink_thread(void *context)
 		 * sent via the mqueue.
 		 */
 		if (furi_message_queue_get(gblink->mqueue, &msg, FuriWaitForever) == FuriStatusOk) {
+#ifdef PERF_TEST
+			furi_hal_gpio_write(&gpio_ext_pc1, true);
+#endif
 			/* Right now, any flag set means close down the thread */
 			if (furi_thread_flags_get())
 				break;
@@ -69,6 +84,9 @@ static int32_t gblink_thread(void *context)
 				gblink->callback(gblink->cb_context, msg);
 
 			furi_semaphore_release(gblink->transfer_sem);
+#ifdef PERF_TEST
+			furi_hal_gpio_write(&gpio_ext_pc1, false);
+#endif
 		}
 	}
 
@@ -81,6 +99,10 @@ static void gblink_clk_isr(void *context)
 	struct gblink *gblink = context;
 	const uint32_t time_ticks = furi_hal_cortex_instructions_per_microsecond() * gblink->bitclk_timeout_us;
 	bool out = false;
+
+#ifdef PERF_TEST
+	furi_hal_gpio_write(&gpio_ext_pc0, true);
+#endif
 
 	/* Whether we're shifting in or out is dependent on the clock source.
 	 * If external, and the clock line is high, that means a posedge just
@@ -130,6 +152,10 @@ static void gblink_clk_isr(void *context)
 			furi_message_queue_put(gblink->mqueue, &gblink->in, 0);
 		}
 	}
+
+#ifdef PERF_TEST
+	furi_hal_gpio_write(&gpio_ext_pc0, false);
+#endif
 }
 
 /* Call to set up the clk pin modes to do the right thing based on if INT or
@@ -388,6 +414,13 @@ void gblink_start(void *handle)
 	furi_hal_gpio_init(gblink->serout, GpioModeOutputPushPull, GpioPullNo, GpioSpeedVeryHigh);
 	furi_hal_gpio_write(gblink->serin, false);
 	furi_hal_gpio_init(gblink->serin, GpioModeInput, GpioPullUp, GpioSpeedVeryHigh);
+#ifdef PERF_TEST
+	furi_hal_gpio_write(&gpio_ext_pc0, false);
+	furi_hal_gpio_init(&gpio_ext_pc0, GpioModeOutputPushPull, GpioPullNo, GpioSpeedVeryHigh);
+	furi_hal_gpio_write(&gpio_ext_pc1, false);
+	furi_hal_gpio_init(&gpio_ext_pc1, GpioModeOutputPushPull, GpioPullNo, GpioSpeedVeryHigh);
+#endif
+
 
 	/* Set up interrupt on clock pin */
 	if (gblink->clk == &gpio_ext_pb3 || gblink->clk == &gpio_ext_pc3) {
@@ -442,6 +475,10 @@ void gblink_stop(void *handle)
 	furi_hal_gpio_init_simple(gblink->serin, GpioModeAnalog);
 	furi_hal_gpio_init_simple(gblink->serout, GpioModeAnalog);
 	furi_hal_gpio_init_simple(gblink->clk, GpioModeAnalog);
+#ifdef PERF_TEST
+	furi_hal_gpio_init_simple(&gpio_ext_pc0, GpioModeAnalog);
+	furi_hal_gpio_init_simple(&gpio_ext_pc1, GpioModeAnalog);
+#endif
 
 	/* Shut down the bottom half. We need to send a nonzero flag, then a message
 	 * start the thread shutdown process.
