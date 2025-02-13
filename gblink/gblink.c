@@ -75,6 +75,8 @@ static inline bool gblink_transfer_in_progress(struct gblink *gblink)
 /* Whenever this thread is running, the start_mutex is acquired so we're safe to 
  * access variables that cannot be modified safely at that point.
  */
+int buf_pos;
+uint8_t *bigbuf;
 static int32_t gblink_thread(void *context)
 {
 	struct gblink *gblink = context;
@@ -102,6 +104,14 @@ static int32_t gblink_thread(void *context)
 			if (furi_thread_flags_get())
 				break;
 
+			/* XXX: Bottom half */
+			if (buf_pos < 512) {
+				bigbuf[buf_pos] = msg;
+				buf_pos++;
+			} else {
+				bigbuf[buf_pos] = 0;
+				furi_crash();
+			}
 			/* 
 			 * Set up next out byte before calling the callback.
 			 * This is in case the callback itself sets a new out
@@ -431,6 +441,8 @@ void *gblink_alloc(void)
 	/* XXX: Absurdly large for testing */
 	gblink->mqueue = furi_message_queue_alloc(512, sizeof(uint8_t));
 
+	bigbuf = malloc(4096);
+
 	/* Start the bottom half handler thread */
 	gblink->thread = furi_thread_alloc_ex("GBLinkRX",
 						1024,
@@ -465,6 +477,8 @@ void gblink_start(void *handle)
 	 * Before returning, spin waiting for confirmation that
 	 * the thread is active and running.
 	 */
+
+	buf_pos = 0;
 
 	/* Set up pins */
 	/* TODO: Set up a list of pins that are not safe to use with interrupts.
@@ -564,6 +578,8 @@ void gblink_free(void *handle)
 		furi_crash();
 		return;
 	}
+
+	free(bigbuf);
 
 	furi_message_queue_free(gblink->mqueue);
 	furi_mutex_release(gblink->start_mutex);
