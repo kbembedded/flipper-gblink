@@ -136,7 +136,7 @@ static void byte_callback(void *context, uint8_t val)
 			/* Any time data is written to the buffer, READY is set */
 			packet->status |= STATUS_READY;
 
-			furi_thread_flags_set(printer->thread, THREAD_FLAGS_DATA);
+			printer->callback(printer->cb_context, printer->image, reason_line_xfer);
 			break;
 		case CMD_TRANSFER:
 			/* XXX: TODO: Check to see if we're still printing when getting
@@ -150,7 +150,7 @@ static void byte_callback(void *context, uint8_t val)
 			printer->image->exposure = packet->line_buf[3];
 			packet->status &= ~STATUS_READY;
 			packet->status |= (STATUS_PRINTING | STATUS_FULL);
-			furi_thread_flags_set(printer->thread, THREAD_FLAGS_PRINT);
+			printer->callback(printer->cb_context, printer->image, reason_print);
 			break;
 		case CMD_STATUS:
 			/* READY cleared on status request */
@@ -158,7 +158,6 @@ static void byte_callback(void *context, uint8_t val)
 			if ((packet->status & STATUS_PRINTING) && packet->print_complete) {
 				packet->status &= ~(STATUS_PRINTING);
 				packet->print_complete = false;
-				furi_thread_flags_set(printer->thread, THREAD_FLAGS_COMPLETE);
 			}
 		}
 
