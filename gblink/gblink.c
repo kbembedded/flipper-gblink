@@ -3,8 +3,7 @@
 
 #include <furi.h>
 #include <furi_hal.h>
-#include <stm32wbxx_ll_exti.h>
-#include <stm32wbxx_ll_system.h>
+#include <notification/notification_messages.h>
 
 #include <stdint.h>
 
@@ -30,6 +29,27 @@
 static inline bool gblink_transfer_in_progress(struct gblink *gblink)
 {
 	return !(furi_semaphore_get_count(gblink->out_byte_sem));
+}
+
+static void gblink_blink(void *context, uint32_t arg)
+{
+	UNUSED(arg);
+	struct gblink *gblink = context;
+
+	furi_hal_light_sequence("G");
+	furi_delay_ms(20);
+	furi_hal_light_sequence("g");
+	furi_delay_ms(25);
+	furi_semaphore_release(gblink->led_sem);
+}
+
+static void gblink_backlight(void *context, uint32_t arg)
+{
+	UNUSED(arg);
+	struct gblink *gblink = context;
+
+	notification_message(gblink->notifications, &sequence_display_backlight_on);
+	furi_semaphore_release(gblink->backlight_sem);
 }
 
 /* NOTE:
@@ -84,6 +104,15 @@ static int32_t gblink_thread(void *context)
 				gblink->callback(gblink->cb_context, msg);
 
 			furi_semaphore_release(gblink->transfer_sem);
+
+			if (gblink->led_blink &&
+			    furi_semaphore_acquire(gblink->led_sem, 0) == FuriStatusOk)
+				furi_timer_pending_callback(gblink_blink, gblink, 0);
+
+			if (gblink->backlight_on &&
+			    furi_semaphore_acquire(gblink->backlight_sem, 0) == FuriStatusOk)
+				furi_timer_pending_callback(gblink_backlight, gblink, 0);
+
 #ifdef PERF_TEST
 			furi_hal_gpio_write(&gpio_ext_pc1, false);
 #endif
@@ -363,6 +392,8 @@ void *gblink_alloc(void)
 
 	gblink->transfer_sem = furi_semaphore_alloc(1, 1);
 	gblink->out_byte_sem = furi_semaphore_alloc(1, 1);
+	gblink->led_sem = furi_semaphore_alloc(1, 1);
+	gblink->backlight_sem = furi_semaphore_alloc(1, 1);
 	gblink->start_mutex = furi_mutex_alloc(FuriMutexTypeNormal);
 
 	/* Empirical testing has found that under 8/16 kHz clock, 16 bytes is
@@ -388,6 +419,9 @@ void *gblink_alloc(void)
 
 	/* Set current time to start timeout calculations */
 	gblink->time = DWT->CYCCNT;
+
+	/* Open notifications record for touching the backlight */
+	gblink->notifications = furi_record_open(RECORD_NOTIFICATION);
 
 	return gblink;
 }
@@ -504,11 +538,28 @@ void gblink_free(void *handle)
 		return;
 	}
 
+	furi_record_close(RECORD_NOTIFICATION);
 	furi_message_queue_free(gblink->mqueue);
 	furi_mutex_release(gblink->start_mutex);
 	furi_mutex_free(gblink->start_mutex);
 	furi_semaphore_free(gblink->transfer_sem);
 	furi_semaphore_free(gblink->out_byte_sem);
+	furi_semaphore_free(gblink->led_sem);
+	furi_semaphore_free(gblink->backlight_sem);
 	furi_thread_free(gblink->thread);
 	free(gblink);
+}
+
+void gblink_led_blink_on_byte(void *handle, bool enable)
+{
+	struct gblink *gblink = handle;
+
+	gblink->led_blink = enable;
+}
+
+void gblink_backlight_on_byte(void *handle, bool enable)
+{
+	struct gblink *gblink = handle;
+
+	gblink->backlight_on = enable;
 }
