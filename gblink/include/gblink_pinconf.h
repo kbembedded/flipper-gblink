@@ -13,6 +13,31 @@
 extern "C" {
 #endif
 
+typedef enum {
+	PINOUT_START = 0,
+	PINOUT_ORIGINAL = 0,
+	PINOUT_MALVEKE_EXT1,
+	PINOUT_CUSTOM,
+	PINOUT_COUNT,
+} gblink_pinouts;
+
+typedef enum {
+	PIN_START = 0,
+	PIN_SERIN = 0,
+	PIN_SEROUT,
+	PIN_CLK,
+	PIN_COUNT,
+} gblink_bus_pins;
+
+extern const char* gblink_gpio_pinnames[];
+
+struct gblink_gpio_pinouts {
+	const char* name;
+	const GpioPin *pin[PIN_COUNT];
+};
+extern const struct gblink_gpio_pinouts gblink_gpio_pinouts[];
+
+
 /**
  * Set one of the pre-configured pinouts
  *
@@ -32,7 +57,7 @@ int gblink_pin_set_default(void *handle, gblink_pinouts pinout);
  *
  * @returns The index of the pre-configured pinout or -1 on error
  */
-int gblink_pin_get_default(void *handle);
+gblink_pinouts gblink_pin_get_default(void *handle);
 
 /**
  * Set a GPIO pin to a specific pin mode for the EXT interface

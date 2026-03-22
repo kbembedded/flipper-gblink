@@ -9,43 +9,25 @@
 #include <stdint.h>
 
 #include <gblink/include/gblink.h>
+#include <gblink/include/gblink_pinconf.h>
 #include "gblink_i.h"
 
 #define PINCONF_FILE_TYPE	"Flipper GB Link Pinconf"
 #define PINCONF_FILE_VER	1
 
-#define PINCONF_ORIG		"Original"
-#define PINCONF_MLVK		"MLVK2.5"
-#define PINCONF_CUST		"Custom"
-
-#define PINCONF_SI		"SI"
-#define PINCONF_SO		"SO"
-#define PINCONF_CLK		"CLK"
-
-struct gblink_pins {
-        const GpioPin *serin;
-        const GpioPin *serout;
-        const GpioPin *clk;
-        const GpioPin *sd;
+/* XXX: This must match gblink_pinouts order */
+const struct gblink_gpio_pinouts gblink_gpio_pinouts[] = {
+	{ "Original",	{ &gpio_ext_pc3, &gpio_ext_pb3, &gpio_ext_pb2/*, &gpio_ext_pa4*/ }, },
+	{ "MLVK2.5",	{ &gpio_ext_pa6, &gpio_ext_pa7, &gpio_ext_pb3/*, &gpio_ext_pa4*/ }, },
+	{ "Custom",	{ NULL, NULL, NULL/*, NULL*/ }, },
 };
 
-const struct gblink_pins common_pinouts[PINOUT_COUNT] = {
-	/* Original */
-	{
-		&gpio_ext_pc3,
-		&gpio_ext_pb3,
-		&gpio_ext_pb2,
-		&gpio_ext_pa4,
-	},
-	/* MALVEKE EXT1 */
-	{
-		&gpio_ext_pa6,
-		&gpio_ext_pa7,
-		&gpio_ext_pb3,
-		&gpio_ext_pa4,
-	},
+/* XXX: This must match gblink_bus_pins order */
+const char* gblink_gpio_pinnames[] = {
+	"SI",
+	"SO",
+	"CLK",
 };
-
 
 int gblink_pin_set_by_gpiopin(void *handle, gblink_bus_pins pin, const GpioPin *gpio)
 {
@@ -55,23 +37,8 @@ int gblink_pin_set_by_gpiopin(void *handle, gblink_bus_pins pin, const GpioPin *
 	if (furi_mutex_acquire(gblink->start_mutex, 0) != FuriStatusOk)
 		return -1;
 
-	switch (pin) {
-	case PIN_SERIN:
-		gblink->serin = gpio;
-		break;
-	case PIN_SEROUT:
-		gblink->serout = gpio;
-		break;
-	case PIN_CLK:
-		gblink->clk = gpio;
-		break;
-	case PIN_SD:
-		gblink->sd = gpio;
-		break;
-	default:
-		furi_crash();
-		break;
-	}
+	/* XXX: This doesn't do any bounds checking */
+	gblink->gpio[pin] = gpio;
 
 	furi_mutex_release(gblink->start_mutex);
 
@@ -83,27 +50,16 @@ const GpioPin *gblink_pin_get_by_gpiopin(void *handle, gblink_bus_pins pin)
 	furi_assert(handle);
 	struct gblink *gblink = handle;
 
-	switch (pin) {
-	case PIN_SERIN:
-		return gblink->serin;
-	case PIN_SEROUT:
-		return gblink->serout;
-	case PIN_CLK:
-		return gblink->clk;
-	case PIN_SD:
-		return gblink->sd;
-	default:
-		furi_crash();
-		break;
-	}
-
-	return NULL;
+	/* XXX: This doesn't do any bounds checking */
+	return gblink->gpio[pin];
 }
 
 int gblink_pin_set_default(void *handle, gblink_pinouts pinout)
 {
 	furi_assert(handle);
 	struct gblink *gblink = handle;
+	gblink_bus_pins pin;
+
 
 	if (pinout == PINOUT_CUSTOM || pinout >= PINOUT_COUNT)
 		return -1;
@@ -111,38 +67,37 @@ int gblink_pin_set_default(void *handle, gblink_pinouts pinout)
 	if (furi_mutex_acquire(gblink->start_mutex, 0) != FuriStatusOk)
 		return -1;
 
-	gblink->serin = common_pinouts[pinout].serin;
-	gblink->serout = common_pinouts[pinout].serout;
-	gblink->clk = common_pinouts[pinout].clk;
-	gblink->sd = common_pinouts[pinout].sd;
+	for (pin = PIN_START; pin < PIN_COUNT; pin++)
+		gblink->gpio[pin] = gblink_gpio_pinouts[pinout].pin[pin];
 
 	furi_mutex_release(gblink->start_mutex);
 
 	return 0;
 }
 
-int gblink_pin_get_default(void *handle)
+gblink_pinouts gblink_pin_get_default(void *handle)
 {
 	furi_assert(handle);
 	struct gblink *gblink = handle;
-	int i;
+	gblink_pinouts pinout;
+	gblink_bus_pins pin;
 
-	for (i = 0; i < PINOUT_COUNT; i++) {
-		if (gblink->serin != common_pinouts[i].serin)
+	for (pinout = PINOUT_START; pinout < PINOUT_CUSTOM; pinout++) {
+		for (pin = PIN_START; pin < PIN_COUNT; pin++) {
+			if (gblink->gpio[pin] != gblink_gpio_pinouts[pinout].pin[pin])
+				break;
+		}
+		/* If we broke out early, that means its not a match */
+		if (pin != PIN_COUNT)
 			continue;
-		if (gblink->serout != common_pinouts[i].serout)
-			continue;
-		if (gblink->clk != common_pinouts[i].clk)
-			continue;
-		/* XXX: Currently not checked or used! */
-		//if (gblink->sd != common_pinouts[pinout].sd;
+
+		/* If all pins match, then the current pinout matches a known
+		 * default pinout.
+		 */
 		break;
 	}
 
-	if (i == PINOUT_COUNT)
-		i = -1;
-
-	return i;
+	return pinout;
 }
 
 int gblink_pin_set(void *handle, gblink_bus_pins pin, unsigned int pinnum)
@@ -155,23 +110,8 @@ int gblink_pin_set(void *handle, gblink_bus_pins pin, unsigned int pinnum)
 	if (furi_mutex_acquire(gblink->start_mutex, 0) != FuriStatusOk)
 		return -1;
 
-	switch (pin) {
-	case PIN_SERIN:
-		gblink->serin = gpio_pins[pinnum].pin;
-		break;
-	case PIN_SEROUT:
-		gblink->serout = gpio_pins[pinnum].pin;
-		break;
-	case PIN_CLK:
-		gblink->clk = gpio_pins[pinnum].pin;
-		break;
-	case PIN_SD:
-		gblink->sd = gpio_pins[pinnum].pin;
-		break;
-	default:
-		furi_crash();
-		break;
-	}
+	/* XXX: No bounds checking done at this time */
+	gblink->gpio[pin] = gpio_pins[pinnum].pin;
 
 	furi_mutex_release(gblink->start_mutex);
 
@@ -184,28 +124,10 @@ int gblink_pin_get(void *handle, gblink_bus_pins pin)
 	struct gblink *gblink = handle;
 	unsigned int i;
 
+	/* XXX: This doesn't do bounds checking */
 	for (i = 0; i < gpio_pins_count; i++) {
-		switch (pin) {
-		case PIN_SERIN:
-			if (gpio_pins[i].pin == gblink->serin)
-				return i;
-			break;
-		case PIN_SEROUT:
-			if (gpio_pins[i].pin == gblink->serout)
-				return i;
-			break;
-		case PIN_CLK:
-			if (gpio_pins[i].pin == gblink->clk)
-				return i;
-			break;
-		case PIN_SD:
-			if (gpio_pins[i].pin == gblink->sd)
-				return i;
-			break;
-		default:
-			furi_crash();
-			break;
-		}
+		if (gpio_pins[i].pin == gblink->gpio[pin])
+			return i;
 	}
 
 	return -1;
@@ -267,6 +189,8 @@ bool gblink_pinconf_load(void *gblink)
 	FuriString *string = NULL;
 	uint32_t val;
 	bool ret = false;
+	gblink_pinouts pinout;
+	gblink_bus_pins pin;
 
 	storage = furi_record_open(RECORD_STORAGE);
 
@@ -297,41 +221,29 @@ bool gblink_pinconf_load(void *gblink)
 		goto out;
 	}
 
-	if (!strncmp(furi_string_get_cstr(string), PINCONF_ORIG, strlen(PINCONF_ORIG))) {
-		FURI_LOG_I("pinconf", "Setting Original pinout");
-		gblink_pin_set_default(gblink, PINOUT_ORIGINAL);
-		goto out;
+	for (pinout = PINOUT_START; pinout < PINOUT_COUNT; pinout++) {
+		if (!strncmp(furi_string_get_cstr(string),
+			     gblink_gpio_pinouts[pinout].name,
+			     strlen(gblink_gpio_pinouts[pinout].name))) {
+			FURI_LOG_I("pinconf", "Setting %s pinout",
+				   gblink_gpio_pinouts[pinout].name);
+			gblink_pin_set_default(gblink, pinout);
+			break;
+		}
 	}
-
-	if (!strncmp(furi_string_get_cstr(string), PINCONF_MLVK, strlen(PINCONF_MLVK))) {
-		FURI_LOG_I("pinconf", "Setting MALVEKE 2.5 pinout");
-		gblink_pin_set_default(gblink, PINOUT_MALVEKE_EXT1);
+	/* XXX: This should update ret */
+	/* A normal pinout was set, move on */
+	if (pinout != PINOUT_CUSTOM)
 		goto out;
-	}
 
-	if (!strncmp(furi_string_get_cstr(string), PINCONF_CUST, strlen(PINCONF_CUST))) {
-		FURI_LOG_I("pinconf", "Setting Custom pinout");
-	}
-
-	if (!flipper_format_read_uint32(data_file, PINCONF_SI, &val, 1)) {
-		FURI_LOG_E("pinconf", "Missing SI");
-		goto out;
-	} else {
-		gblink_pin_set(gblink, PIN_SERIN, val);
-	}
-
-	if (!flipper_format_read_uint32(data_file, PINCONF_SO, &val, 1)) {
-		FURI_LOG_E("pinconf", "Missing SO");
-		goto out;
-	} else {
-		gblink_pin_set(gblink, PIN_SEROUT, val);
-	}
-
-	if (!flipper_format_read_uint32(data_file, PINCONF_CLK, &val, 1)) {
-		FURI_LOG_E("pinconf", "Missing CLK");
-		goto out;
-	} else {
-		gblink_pin_set(gblink, PIN_CLK, val);
+	/* If a custom pinout was set */
+	for (pin = PIN_START; pin < PIN_COUNT; pin++) {
+		if (!flipper_format_read_uint32(data_file, gblink_gpio_pinnames[pin], &val, 1)) {
+			FURI_LOG_E("pinconf", "Missing %s", gblink_gpio_pinnames[pin]);
+			goto out;
+		} else {
+			gblink_pin_set(gblink, pin, val);
+		}
 	}
 
 	ret = true;
@@ -352,9 +264,10 @@ bool gblink_pinconf_save(void *gblink)
 	Storage *storage = NULL;;
 	FlipperFormat *data_file = NULL;
 	FuriString *string = NULL;
-	int rc;
-	uint32_t pin;
+	uint32_t pinnum;
 	bool ret = false;
+	gblink_pinouts pinout;
+	gblink_bus_pins pin;
 
 	storage = furi_record_open(RECORD_STORAGE);
 
@@ -374,43 +287,24 @@ bool gblink_pinconf_save(void *gblink)
 		goto out;
 	}
 
-	rc = gblink_pin_get_default(gblink);
-	switch (rc) {
-	case 0:
-		if (!flipper_format_write_string_cstr(data_file, "Mode", PINCONF_ORIG))
-			FURI_LOG_E("pinconf", "Error writing mode to file");
-		goto out;
-		break;
-	case 1:
-		if (!flipper_format_write_string_cstr(data_file, "Mode", PINCONF_MLVK))
-			FURI_LOG_E("pinconf", "Error writing mode to file");
-		goto out;
-		break;
-	case -1:
-		if (!flipper_format_write_string_cstr(data_file, "Mode", PINCONF_CUST))
-			FURI_LOG_E("pinconf", "Error writing mode to file");
-		break;
-	default:
-		FURI_LOG_E("pinconf", "Unknown mode");
-		goto out;
-		break;
-	}
+	pinout = gblink_pin_get_default(gblink);
+	if (!flipper_format_write_string_cstr(data_file, "Mode", gblink_gpio_pinouts[pinout].name))
+		FURI_LOG_E("pinconf", "Error writing mode to file");
 
-	pin = gblink_pin_get(gblink, PIN_SERIN);
-	if (!flipper_format_write_uint32(data_file, "SI", &pin, 1)) {
-		FURI_LOG_E("pinconf", "Error writing SI to file");
+	if (pinout != PINOUT_CUSTOM)
 		goto out;
-	}
 
-	pin = gblink_pin_get(gblink, PIN_SEROUT);
-	if (!flipper_format_write_uint32(data_file, "SO", &pin, 1)) {
-		FURI_LOG_E("pinconf", "Error writing SO to file");
-		goto out;
-	}
-
-	pin = gblink_pin_get(gblink, PIN_CLK);
-	if (!flipper_format_write_uint32(data_file, "CLK", &pin, 1)) {
-		FURI_LOG_E("pinconf", "Error writing CLK to file");
+	/* Set each pin for a custom pinout */
+	for (pin = PIN_START; pin < PIN_COUNT; pin++) {
+		pinnum = gblink_pin_get(gblink, pin);
+		if (!flipper_format_write_uint32(data_file,
+						 gblink_gpio_pinnames[pin],
+						 &pinnum,
+						 1)) {
+			FURI_LOG_E("pinconf", "Error writing %s to file",
+					      gblink_gpio_pinnames[pin]);
+			goto out;
+		}
 	}
 
 	ret = true;

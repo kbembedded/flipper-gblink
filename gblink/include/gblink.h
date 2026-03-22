@@ -48,21 +48,6 @@ typedef enum {
 	GBLINK_SPD_524288HZ = 262144,
 } gblink_speed;
 
-typedef enum {
-	PINOUT_CUSTOM = -1,
-	PINOUT_ORIGINAL = 0,
-	PINOUT_MALVEKE_EXT1,
-	PINOUT_COUNT,
-} gblink_pinouts;
-
-typedef enum {
-	PIN_SERIN,
-	PIN_SEROUT,
-	PIN_CLK,
-	PIN_SD,
-	PIN_COUNT,
-} gblink_bus_pins;
-
 /**
  * Set the clock source for transfer, internal or external.
  *

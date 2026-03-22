@@ -143,20 +143,20 @@ static void gblink_clk_isr(void *context)
 	 * The actual in/out functions drive the clock state at the right times
 	 * if the clock is internal source.
 	 */
-	out = (furi_hal_gpio_read(gblink->clk) ==
+	out = (furi_hal_gpio_read(gblink->gpio[PIN_CLK]) ==
 	      (gblink->source == GBLINK_CLK_INT));
 
 	if (out) {
 		furi_semaphore_acquire(gblink->out_byte_sem, 0);
-		furi_hal_gpio_write(gblink->serout, !!(gblink->out & 0x80));
+		furi_hal_gpio_write(gblink->gpio[PIN_SEROUT], !!(gblink->out & 0x80));
 		gblink->out <<= 1;
 
 		if (gblink->source == GBLINK_CLK_INT)
-			furi_hal_gpio_write(gblink->clk, 0);
+			furi_hal_gpio_write(gblink->gpio[PIN_CLK], 0);
 	} else {
 
 		if (gblink->source == GBLINK_CLK_INT)
-			furi_hal_gpio_write(gblink->clk, 1);
+			furi_hal_gpio_write(gblink->gpio[PIN_CLK], 1);
 
 		/* If we exceeded the bit clock timeout, reset all counters */
 		if ((DWT->CYCCNT - gblink->time) > time_ticks) {
@@ -165,7 +165,7 @@ static void gblink_clk_isr(void *context)
 		gblink->time = DWT->CYCCNT;
 
 		gblink->in <<= 1;
-		gblink->in |= furi_hal_gpio_read(gblink->serin);
+		gblink->in |= furi_hal_gpio_read(gblink->gpio[PIN_SERIN]);
 		gblink->shift++;
 		/* If 8 bits transfered, reset shift counter, call registered
 		 * callback, re-set nobyte in output buffer.
@@ -193,14 +193,14 @@ static void gblink_clk_isr(void *context)
 static void gblink_clk_configure(struct gblink *gblink)
 {
 	if (gblink->source == GBLINK_CLK_EXT) {
-		furi_hal_gpio_init(gblink->clk, GpioModeInterruptRiseFall, GpioPullUp, GpioSpeedVeryHigh);
+		furi_hal_gpio_init(gblink->gpio[PIN_CLK], GpioModeInterruptRiseFall, GpioPullUp, GpioSpeedVeryHigh);
 		/* furi_hal_gpio_init, while it sets interrupt settings on the GPIO,
 		 * does not actually enable the EXTI interrupt.
 		 */
 		gblink_int_enable(gblink);
 	} else {
 		/* This will disable the EXTI interrupt for us */
-		furi_hal_gpio_init(gblink->clk, GpioModeOutputOpenDrain, GpioPullUp, GpioSpeedVeryHigh);
+		furi_hal_gpio_init(gblink->gpio[PIN_CLK], GpioModeOutputOpenDrain, GpioPullUp, GpioSpeedVeryHigh);
 	}
 }
 
@@ -368,7 +368,7 @@ void gblink_int_enable(void *handle)
 	 * in effect. It just enables the root EXTI interrupt source of the
 	 * given pin.
 	 */
-	furi_hal_gpio_enable_int_callback(gblink->clk);
+	furi_hal_gpio_enable_int_callback(gblink->gpio[PIN_CLK]);
 }
 
 void gblink_int_disable(void *handle)
@@ -380,7 +380,7 @@ void gblink_int_disable(void *handle)
 	 * in effect. It just disables the root EXTI interrupt source of the
 	 * given pin.
 	 */
-	furi_hal_gpio_disable_int_callback(gblink->clk);
+	furi_hal_gpio_disable_int_callback(gblink->gpio[PIN_CLK]);
 }
 
 void *gblink_alloc(void)
@@ -444,10 +444,10 @@ void gblink_start(void *handle)
 	 * See the work done in pokemon trade tool custom pinout selection for
 	 * an idea of how to check all that.
 	 */
-	furi_hal_gpio_write(gblink->serout, false);
-	furi_hal_gpio_init(gblink->serout, GpioModeOutputPushPull, GpioPullNo, GpioSpeedVeryHigh);
-	furi_hal_gpio_write(gblink->serin, false);
-	furi_hal_gpio_init(gblink->serin, GpioModeInput, GpioPullUp, GpioSpeedVeryHigh);
+	furi_hal_gpio_write(gblink->gpio[PIN_SEROUT], false);
+	furi_hal_gpio_init(gblink->gpio[PIN_SEROUT], GpioModeOutputPushPull, GpioPullNo, GpioSpeedVeryHigh);
+	furi_hal_gpio_write(gblink->gpio[PIN_SERIN], false);
+	furi_hal_gpio_init(gblink->gpio[PIN_SERIN], GpioModeInput, GpioPullUp, GpioSpeedVeryHigh);
 #ifdef PERF_TEST
 	furi_hal_gpio_write(&gpio_ext_pc0, false);
 	furi_hal_gpio_init(&gpio_ext_pc0, GpioModeOutputPushPull, GpioPullNo, GpioSpeedVeryHigh);
@@ -457,17 +457,17 @@ void gblink_start(void *handle)
 
 
 	/* Set up interrupt on clock pin */
-	if (gblink->clk == &gpio_ext_pb3 || gblink->clk == &gpio_ext_pc3) {
+	if (gblink->gpio[PIN_CLK] == &gpio_ext_pb3 || gblink->gpio[PIN_CLK] == &gpio_ext_pc3) {
 		/* The clock pin is on a pin that is not safe to set an interrupt
 		 * on, so we do a gross workaround to get an interrupt enabled
 		 * on that pin in a way that can be undone safely later with
 		 * no impact to the shared IRQ.
 		 */
-		gblink->exti_workaround_handle = exti_workaround(gblink->clk, gblink_clk_isr, gblink);
+		gblink->exti_workaround_handle = exti_workaround(gblink->gpio[PIN_CLK], gblink_clk_isr, gblink);
 	} else {
 		/* This may not be needed after NFC refactor */
-		furi_hal_gpio_remove_int_callback(gblink->clk);
-		furi_hal_gpio_add_int_callback(gblink->clk, gblink_clk_isr, gblink);
+		furi_hal_gpio_remove_int_callback(gblink->gpio[PIN_CLK]);
+		furi_hal_gpio_add_int_callback(gblink->gpio[PIN_CLK], gblink_clk_isr, gblink);
 	}
 
 	/* The above immediately enables the interrupt, we don't want
@@ -497,18 +497,18 @@ void gblink_stop(void *handle)
 		return;
 	}
 
-	if (gblink->clk == &gpio_ext_pb3 || gblink->clk == &gpio_ext_pc3) {
+	if (gblink->gpio[PIN_CLK] == &gpio_ext_pb3 || gblink->gpio[PIN_CLK] == &gpio_ext_pc3) {
 		/* This handles switching the IVT back and putting the EXTI
 		 * regs and pin regs in a valid state for normal use.
 		 */
 		exti_workaround_undo(gblink->exti_workaround_handle);
 	} else {
 		/* Remove interrupt, set IO to sane state */
-		furi_hal_gpio_remove_int_callback(gblink->clk);
+		furi_hal_gpio_remove_int_callback(gblink->gpio[PIN_CLK]);
 	}
-	furi_hal_gpio_init_simple(gblink->serin, GpioModeAnalog);
-	furi_hal_gpio_init_simple(gblink->serout, GpioModeAnalog);
-	furi_hal_gpio_init_simple(gblink->clk, GpioModeAnalog);
+	furi_hal_gpio_init_simple(gblink->gpio[PIN_SERIN], GpioModeAnalog);
+	furi_hal_gpio_init_simple(gblink->gpio[PIN_SEROUT], GpioModeAnalog);
+	furi_hal_gpio_init_simple(gblink->gpio[PIN_CLK], GpioModeAnalog);
 #ifdef PERF_TEST
 	furi_hal_gpio_init_simple(&gpio_ext_pc0, GpioModeAnalog);
 	furi_hal_gpio_init_simple(&gpio_ext_pc1, GpioModeAnalog);
