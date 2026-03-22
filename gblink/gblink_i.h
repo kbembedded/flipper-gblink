@@ -8,12 +8,10 @@
 #include <stdint.h>
 
 #include <gblink/include/gblink.h>
+#include <gblink/include/gblink_pinconf.h>
 
 struct gblink {
-	const GpioPin *serin;
-	const GpioPin *serout;
-	const GpioPin *clk;
-	const GpioPin *sd;
+	const GpioPin *gpio[PIN_COUNT];
 	gblink_mode mode;
 	void (*callback)(void* cb_context, uint8_t in);
 	void *cb_context;
