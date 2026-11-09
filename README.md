@@ -1,7 +1,9 @@
 # Flipper Game Boy Game Link Cable API
+[![AI-DECLARATION: none](https://img.shields.io/badge/䷼%20AI--DECLARATION-none-dcfce7?labelColor=dcfce7)](https://ai-declaration.md)
+
 Simple API that can be included in projects to provide a flexible and easy way to handle data exchange over a Game Link Cable.
 
-Current Version: 0.62
+Current Version: 0.67
 
 Available from: https://github.com/kbembedded/flipper-gblink
 
@@ -18,6 +20,9 @@ Available from: https://github.com/kbembedded/flipper-gblink
 - [x] Supports older MALVEKE pinouts that would previously cause the Okay button to stop functioning after a trade  
 - [ ] Supports communication to GB (untested, but should work)  
 - [ ] Supports communication to GBA using GBA games  
+-  [ ] SPI device mode
+-  [ ] SPI host mode
+-  [ ] UART mode
 - [ ] Function as INT clock source. i.e. Flipper Zero drives the clock line  
 - [ ] Drive clock at varying speeds as GBC supports  
 - [ ] Proper documentation  
